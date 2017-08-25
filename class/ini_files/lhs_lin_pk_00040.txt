@@ -1,0 +1,25 @@
+Reading input parameters
+ -> matched budget equations by adjusting Omega_Lambda = 7.387115e-01
+Running CLASS version v2.6.0
+Computing background
+ -> age = 13.412122 Gyr
+ -> conformal age = 14080.267991 Mpc
+Computing thermodynamics with Y_He=0.2487
+ -> recombination at z = 1086.645422
+    corresponding to conformal time = 282.707460 Mpc
+    with comoving sound horizon = 144.299163 Mpc
+    angular diameter distance = 12.685716 Mpc
+    and sound horizon angle 100*theta_s = 1.045831
+ -> baryon drag stops at z = 1064.027724
+    corresponding to conformal time = 287.181507 Mpc
+    with comoving sound horizon rs = 146.288267 Mpc
+ -> reionization with optical depth = 0.102933
+    corresponding to conformal time = 4301.073063 Mpc
+Computing sources
+Computing primordial spectra (analytic spectrum)
+No non-linear spectra requested. Nonlinear module skipped.
+No harmonic space transfer functions to compute. Transfer module skipped.
+Computing unlensed linear spectra
+ -> sigma8=0.800637 (computed till k = 12.2896 h/Mpc)
+No lensing requested. Lensing module skipped.
+Writing output files in output/lin/lhs_lin_pk_00040... 

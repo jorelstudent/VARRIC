@@ -1,0 +1,59 @@
+<html>
+<head>
+  <title>CCL and CLASS Validation HOMEPAGE- k</title>
+<link
+    href="http://cdn.pydata.org/bokeh/release/bokeh-0.12.5.min.css"
+    rel="stylesheet" type="text/css">
+<link
+    href="http://cdn.pydata.org/bokeh/release/bokeh-widgets-0.12.5.min.css"
+    rel="stylesheet" type="text/css">
+
+<script src="http://cdn.pydata.org/bokeh/release/bokeh-0.12.5.min.js"></script>
+<script src="http://cdn.pydata.org/bokeh/release/bokeh-widgets-0.12.5.min.js"></script>
+<style>
+            .embed-wrapper {
+                width: 50%;
+                height: 400px;
+                margin: auto;
+            }
+</style>
+</head>
+<body>
+<!--<H1>CCL Validation</H1> -->
+<!--<form action="/">
+<select name="feature_name">
+	{% for feature in feature_names %}
+		{% if feature == current_feature_name %}
+			<option selected value="{{ feature }}">{{ feature }}</option>
+		{% else %}
+			<option value="{{ feature }}">{{ feature }}</option>
+		{% endif %}
+	{% endfor %}
+</select>
+<input type="submit">
+</form> -->
+{{script|safe}}
+<!-- {% for d in div %}
+ {{ div[d]|safe }}
+ </div>
+{% endfor %}-->
+
+<!--{{ div['dropdown']|safe }}
+{{ div['plot']|safe}}-->
+{{div|safe}}
+
+<script>
+function open_comparison(datapoint){
+	// Get state of the dropdown
+
+	// Get datapoint ID
+
+	// Build URL
+
+	// Open URL
+	window.open("http://127.0.0.1:5000/)
+}
+</script>
+
+</body>
+</html>

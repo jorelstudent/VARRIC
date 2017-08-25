@@ -1,0 +1,13 @@
+# List of input/precision parameters passed
+# but not used (just for info)
+#
+w0_fld = -0.7475
+wa_fld = -0.061
+annihilation_variation = 0.
+annihilation_z = 1000
+annihilation_zmax = 2500
+annihilation_zmin = 30
+annihilation_f_halo = 20
+annihilation_z_halo = 8
+on the spot = yes
+l_max_scalars = 2500
