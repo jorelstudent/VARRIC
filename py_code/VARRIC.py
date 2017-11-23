@@ -1,14 +1,21 @@
 from flask import Flask, render_template, request
 import pandas as pd
-from bokeh.embed import components
 
+from bokeh import __version__ as BOKEH_VERSION
+from bokeh.embed import components
 from bokeh.palettes import Spectral6
 from bokeh.layouts import column, widgetbox, WidgetBox, layout
-from bokeh.models import CustomJS, Button, HoverTool, ColumnDataSource, LinearColorMapper, BasicTicker, PrintfTickFormatter, ColorBar, OpenURL, TapTool#For the button and a hovertool
-from bokeh.models.widgets import Paragraph, PreText, CheckboxGroup, Slider, Dropdown, Select, RangeSlider #For the sliders and dropdown
+
+# For the button and a hovertool
+from bokeh.models import CustomJS, Button, HoverTool, ColumnDataSource, \
+                         LinearColorMapper, BasicTicker, PrintfTickFormatter, \
+                         ColorBar, OpenURL, TapTool
+# For the sliders and dropdown
+from bokeh.models.widgets import Paragraph, PreText, CheckboxGroup, Slider, \
+                                 Dropdown, Select, RangeSlider
 from bokeh.plotting import figure, curdoc, show
-from bokeh.io import gridplot, output_file, show #allows you to make gridplots
-from bokeh.charts import HeatMap, bins, output_file, show #Allows you to craete heatmaps
+from bokeh.io import gridplot, output_file, show # Allows you to make gridplots
+from bokeh.charts import HeatMap, bins, output_file, show # Allows you to create heatmaps
 from bokeh.models import Rect
 
 import numpy as np
@@ -23,10 +30,10 @@ indices = range(100)
 #LETS IMPLEMENT A CLICK
 @app.route('/')
 def home():
-    #load the data
+    # Load the data
     data = np.loadtxt('../data/par_stan1.csv', skiprows=1)
 
-    #Load the parameter values and total failures, since it will be easier to load
+    # Load the parameter values and total failures, since it will be easier to load
     trial_arr = data[:,0]
     h_arr = data[:,1]
     Omega_b_arr = data[:,2]
@@ -231,7 +238,7 @@ def home():
         tot_nl_k1_z6 = []
         tot_nl_k2_z6 = []
         tot_nl_k3_z6 = []
-
+        
         tot_lin_pre_k1_z1 = []
         tot_lin_pre_k2_z1 = []
         tot_lin_pre_k3_z1 = []
@@ -1748,7 +1755,7 @@ def home():
     script, div_dict = components(l)
     print div_dict
     #print div_dict
-    return render_template('homepage.html', script=script, div=div_dict)
+    return render_template('homepage.html', script=script, div=div_dict, bokeh_version=BOKEH_VERSION)
                            #feature_names=feature_names, current_feature_name=current_feature_name)
 
 
@@ -2142,7 +2149,7 @@ for j in range(len(z_vals)):
     #print (script)
     #print(div)
 
-    return render_template("lin.html", script=script, div=div)
+    return render_template("lin.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
 
 @app.route('/nl/')
 def nl():
@@ -2544,7 +2551,7 @@ for j in range(len(z_vals)):
     #print(div)
     #print(div)
 
-    return render_template("nl.html", script=script, div=div)
+    return render_template("nl.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
 
 
 @app.route('/lin_pre/')
@@ -2939,7 +2946,7 @@ for j in range(len(z_vals)):
     #print (script)
     #print(div)
 
-    return render_template("lin_pre.html", script=script, div=div)
+    return render_template("lin_pre.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
 
 @app.route('/nl_pre/')
 def nl_pre():
@@ -3330,11 +3337,12 @@ for j in range(len(z_vals)):
     #print (script)
     #print(div)
 
-    return render_template("nl_pre.html", script=script, div=div)
+    return render_template("nl_pre.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
 
 #With debug=True, Flask Render will auto-reload when there are code changes
 if __name__ == '__main__':
     #set debug to False in a production environment
+    
     app.run(port=5000, debug=True)
 
 
