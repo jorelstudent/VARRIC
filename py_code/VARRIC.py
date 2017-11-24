@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request
-import pandas as pd
+#import pandas as pd
 
 from bokeh import __version__ as BOKEH_VERSION
 from bokeh.embed import components
@@ -14,13 +14,16 @@ from bokeh.models import CustomJS, Button, HoverTool, ColumnDataSource, \
 from bokeh.models.widgets import Paragraph, PreText, CheckboxGroup, Slider, \
                                  Dropdown, Select, RangeSlider
 from bokeh.plotting import figure, curdoc, show
-from bokeh.io import gridplot, output_file, show # Allows you to make gridplots
-from bokeh.charts import HeatMap, bins, output_file, show # Allows you to create heatmaps
+# For gridplots
+from bokeh.io import gridplot, output_file, show
+# For heatmaps
+from bokeh.charts import HeatMap, bins, output_file, show
 from bokeh.models import Rect
 
 import numpy as np
-import pdb
+#import pdb
 from random import random
+from precompute_ccl import ccl_summary_stats, build_data_dict
 
 app = Flask(__name__)
 #creates hover tool
@@ -30,1366 +33,99 @@ indices = range(100)
 #LETS IMPLEMENT A CLICK
 @app.route('/')
 def home():
-    # Load the data
-    data = np.loadtxt('../data/par_stan1.csv', skiprows=1)
-
-    # Load the parameter values and total failures, since it will be easier to load
-    trial_arr = data[:,0]
-    h_arr = data[:,1]
-    Omega_b_arr = data[:,2]
-    Omega_cdm_arr = data[:,3]
-    A_s_arr = data[:,4]
-    n_s_arr = data[:,5]
-    #Gets the extension depending on which mode you choose
-    #tot_tot_lin = tot_tot[:,0]
-    #tot_tot_nl = tot_tot[:,1]
-    #tot_tot_lin_pre = tot_tot[:,2]
-    #tot_tot_nl_pre = tot_tot[:,3]
-
-    ####################################################
-    #CALCULATE THE VALUES FOR HOW BADLY SOMETHING FAILS#
-    ####################################################
-
-    #Also the number for failures can either include clustering regime only or not
-    thres_val = [5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2] #Threshold for the failures
-    thres = 1.e-4 #Threshold for number of failures
-    clustering_only = False #Only counts failures if inside the clustering regime
-
-    ultra_scale_min = 1e-4 #Minimum for the ultra-large scales
-    ultra_scale_max = 1e-2 #Maximum for the ultra-large scales
-    lin_scale_min = 1e-2 #Min for the linear scales
-    lin_scale_max = 1e-1 #Max for the linear scales
-    quasi_scale_min = 1e-1 #Min for the quasi-lin scales
-    quasi_scale_max = 1.0 #Max for the quasi-lin scales
-
-
-    cluster_reg_min = 1e-2 #Min for the cluster regime
-    cluster_reg_max = 0.2 # Max for the cluster regime
-
-
-    #Create arrays that will be filled in the loop over trials
-    #Total of the wights
-    tot_tot_lin = []
-    tot_tot_nl = []
-    tot_tot_lin_pre = []
-    tot_tot_nl_pre = []
-
-    #Get the totals for the different thresholds
-    #For now, we'll denote it as 1,2,3,4,5,6
-    #1 = 5e-5
-    #2 = 1e-4
-    #3 = 5e-4
-    #4 = 1e-3
-    #5 = 5e-3
-    #6 = 1e-2
-
-    #Get the totals for different k_ranges
-    #We have 3 k_ranges, denote by 1,2,3
-    #1 = Ultra Large Scales
-    #2 = Linear scales
-    #3 = Nonlinear scales
-
-    #But we have to do this for different z_values as well
-    #Probably a more efficient way of writing this, but I think this will suffice
-    tot_lin_k1_z1_ll = []
-    tot_lin_k2_z1_ll = []
-    tot_lin_k3_z1_ll = []
+    """
+    Homepage, which shows summary stats for a given dataset.
+    """
+    # Load sample points in cosmological parameter space
+    datafile = "../data/par_stan1.csv"
+    sample_points = np.loadtxt(datafile, skiprows=1)
+    params = {
+        'id':           sample_points[:,0],
+        'h':            sample_points[:,1],
+        'Omega_b':      sample_points[:,2],
+        'Omega_cdm':    sample_points[:,3],
+        'A_s':          sample_points[:,4],
+        'n_s':          sample_points[:,5],
+    }
     
-    tot_lin_k1_z2_ll = []
-    tot_lin_k2_z2_ll = []
-    tot_lin_k3_z2_ll = []
+    # Define binning in (z, k) and threshold values
+    thresholds = [5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2]
+    scale_ranges = [(1e-4, 1e-2), (1e-2, 1e-1), (1e-1, 1e0)]
+    z_vals = [1, 2, 3, 4, 5, 6]
     
-    tot_lin_k1_z3_ll = []
-    tot_lin_k2_z3_ll = []
-    tot_lin_k3_z3_ll = []
+    # Calculate summary stats
+    stats_lin, p = ccl_summary_stats( params, 
+                        fname_template='../stats/lhs_mpk_err_lin_%05d_z%d.dat',
+                        thresholds=thresholds, scale_ranges=scale_ranges,
+                        z_vals=z_vals, cache_name='cache_lin' )
+    stats_nl, p = ccl_summary_stats( params, 
+                        fname_template='../stats/lhs_mpk_err_nl_%05d_z%d.dat', 
+                        thresholds=thresholds, scale_ranges=scale_ranges, 
+                        z_vals=z_vals, cache_name='cache_nl' )
+    stats_lin_pre, p = ccl_summary_stats( params, 
+                        fname_template='../stats/lhs_mpk_err_lin_pk_%05d_z%d.dat', 
+                        thresholds=thresholds, scale_ranges=scale_ranges, 
+                        z_vals=z_vals, cache_name='cache_lin_pre' )
+    stats_nl_pre, p = ccl_summary_stats( params, 
+                        fname_template='../stats/lhs_mpk_err_nl_pk_%05d_z%d.dat', 
+                        thresholds=thresholds, scale_ranges=scale_ranges, 
+                        z_vals=z_vals, cache_name='cache_nl_pre' )
     
-    tot_lin_k1_z4_ll = []
-    tot_lin_k2_z4_ll = []
-    tot_lin_k3_z4_ll = []
+    # Build data dictionaries
+    data_lin = build_data_dict(stats_lin, 'lin')
+    data_nl = build_data_dict(stats_nl, 'nl')
+    data_lin_pre = build_data_dict(stats_lin_pre, 'lin_pre')
+    data_nl_pre = build_data_dict(stats_nl_pre, 'nl_pre')
     
-    tot_lin_k1_z5_ll = []
-    tot_lin_k2_z5_ll = []
-    tot_lin_k3_z5_ll = []
-    
-    tot_lin_k1_z6_ll = []
-    tot_lin_k2_z6_ll = []
-    tot_lin_k3_z6_ll = []
-    
-    tot_nl_k1_z1_ll = []
-    tot_nl_k2_z1_ll = []
-    tot_nl_k3_z1_ll = []
-
-    tot_nl_k1_z2_ll = []
-    tot_nl_k2_z2_ll = []
-    tot_nl_k3_z2_ll = []
-
-    tot_nl_k1_z3_ll = []
-    tot_nl_k2_z3_ll = []
-    tot_nl_k3_z3_ll = []
-
-    tot_nl_k1_z4_ll = []
-    tot_nl_k2_z4_ll = []
-    tot_nl_k3_z4_ll = []
-
-    tot_nl_k1_z5_ll = []
-    tot_nl_k2_z5_ll = []
-    tot_nl_k3_z5_ll = []
-
-    tot_nl_k1_z6_ll = []
-    tot_nl_k2_z6_ll = []
-    tot_nl_k3_z6_ll = []
-
-    tot_lin_pre_k1_z1_ll = []
-    tot_lin_pre_k2_z1_ll = []
-    tot_lin_pre_k3_z1_ll = []
-
-    tot_lin_pre_k1_z2_ll = []
-    tot_lin_pre_k2_z2_ll = []
-    tot_lin_pre_k3_z2_ll = []
-
-    tot_lin_pre_k1_z3_ll = []
-    tot_lin_pre_k2_z3_ll = []
-    tot_lin_pre_k3_z3_ll = []
-
-    tot_lin_pre_k1_z4_ll = []
-    tot_lin_pre_k2_z4_ll = []
-    tot_lin_pre_k3_z4_ll = []
-
-    tot_lin_pre_k1_z5_ll = []
-    tot_lin_pre_k2_z5_ll = []
-    tot_lin_pre_k3_z5_ll = []
-
-    tot_lin_pre_k1_z6_ll = []
-    tot_lin_pre_k2_z6_ll = []
-    tot_lin_pre_k3_z6_ll = []
-
-    tot_nl_pre_k1_z1_ll = []
-    tot_nl_pre_k2_z1_ll = []
-    tot_nl_pre_k3_z1_ll = []
-
-    tot_nl_pre_k1_z2_ll = []
-    tot_nl_pre_k2_z2_ll = []
-    tot_nl_pre_k3_z2_ll = []
-
-    tot_nl_pre_k1_z3_ll = []
-    tot_nl_pre_k2_z3_ll = []
-    tot_nl_pre_k3_z3_ll = []
-
-    tot_nl_pre_k1_z4_ll = []
-    tot_nl_pre_k2_z4_ll = []
-    tot_nl_pre_k3_z4_ll = []
-
-    tot_nl_pre_k1_z5_ll = []
-    tot_nl_pre_k2_z5_ll = []
-    tot_nl_pre_k3_z5_ll = []
-
-    tot_nl_pre_k1_z6_ll = []
-    tot_nl_pre_k2_z6_ll = []
-    tot_nl_pre_k3_z6_ll = []
-
-    #Iterate over different threshold values
-    for m in thres_val:
-        thres = m
-
-        tot_lin_k1_z1 = []
-        tot_lin_k2_z1 = []
-        tot_lin_k3_z1 = []
-    
-        tot_lin_k1_z2 = []
-        tot_lin_k2_z2 = []
-        tot_lin_k3_z2 = []
-    
-        tot_lin_k1_z3 = []
-        tot_lin_k2_z3 = []
-        tot_lin_k3_z3 = []
-    
-        tot_lin_k1_z4 = []
-        tot_lin_k2_z4 = []
-        tot_lin_k3_z4 = []
-    
-        tot_lin_k1_z5 = []
-        tot_lin_k2_z5 = []
-        tot_lin_k3_z5 = []
-    
-        tot_lin_k1_z6 = []
-        tot_lin_k2_z6 = []
-        tot_lin_k3_z6 = []
-    
-        tot_nl_k1_z1 = []
-        tot_nl_k2_z1 = []
-        tot_nl_k3_z1 = []
-
-        tot_nl_k1_z2 = []
-        tot_nl_k2_z2 = []
-        tot_nl_k3_z2 = []
-    
-        tot_nl_k1_z3 = []
-        tot_nl_k2_z3 = []
-        tot_nl_k3_z3 = []
-
-        tot_nl_k1_z4 = []
-        tot_nl_k2_z4 = []
-        tot_nl_k3_z4 = []
-
-        tot_nl_k1_z5 = []
-        tot_nl_k2_z5 = []
-        tot_nl_k3_z5 = []
-
-        tot_nl_k1_z6 = []
-        tot_nl_k2_z6 = []
-        tot_nl_k3_z6 = []
-        
-        tot_lin_pre_k1_z1 = []
-        tot_lin_pre_k2_z1 = []
-        tot_lin_pre_k3_z1 = []
-    
-        tot_lin_pre_k1_z2 = []
-        tot_lin_pre_k2_z2 = []
-        tot_lin_pre_k3_z2 = []
-
-        tot_lin_pre_k1_z3 = []
-        tot_lin_pre_k2_z3 = []
-        tot_lin_pre_k3_z3 = []
-
-        tot_lin_pre_k1_z4 = []
-        tot_lin_pre_k2_z4 = []
-        tot_lin_pre_k3_z4 = []
-
-        tot_lin_pre_k1_z5 = []
-        tot_lin_pre_k2_z5 = []
-        tot_lin_pre_k3_z5 = []
-
-        tot_lin_pre_k1_z6 = []
-        tot_lin_pre_k2_z6 = []
-        tot_lin_pre_k3_z6 = []
-
-        tot_nl_pre_k1_z1 = []
-        tot_nl_pre_k2_z1 = []
-        tot_nl_pre_k3_z1 = []
-
-        tot_nl_pre_k1_z2 = []
-        tot_nl_pre_k2_z2 = []
-        tot_nl_pre_k3_z2 = []
-
-        tot_nl_pre_k1_z3 = []
-        tot_nl_pre_k2_z3 = []
-        tot_nl_pre_k3_z3 = []
-
-        tot_nl_pre_k1_z4 = []
-        tot_nl_pre_k2_z4 = []
-        tot_nl_pre_k3_z4 = []
-
-        tot_nl_pre_k1_z5 = []
-        tot_nl_pre_k2_z5 = []
-        tot_nl_pre_k3_z5 = []
-
-        tot_nl_pre_k1_z6 = []
-        tot_nl_pre_k2_z6 = []
-        tot_nl_pre_k3_z6 = []
-
-        ###########################
-        #                         #
-        #GETTING THE SUMMARY STATS#
-        #                         #
-        ###########################
-        for i in range(len(trial_arr)):
-            trial = data[i,0]
-            print 'Performing trial %05d' %trial
-
-            z_vals = ['1', '2', '3', '4', '5', '6']
-
-            #Gonna generate an array of arrays, with each row corresponding to a different z value
-            #Each columns will correspond to a different bins of k_values
-            tot_lin = []
-
-            #For list of lists
-            tot_lin_ll = []
-    
-            for j in range(len(z_vals)):
-                z_val = z_vals[j]
-                z_path ='_z%s.dat' %z_val
-                print 'Performing z_val = ', z_val
-        
-                #For ease in iterating over different z values we use string manipulation
-                stats_lin_path = '../stats/lhs_mpk_err_lin_%05d' %trial
-
-                #Adds the z_path
-                stats_lin_path += z_path
-
-                #Calls the data 
-                stats_lin_data = np.loadtxt(stats_lin_path, skiprows=1)
-
-                stats_lin_k = stats_lin_data[:,0]
-                stats_lin_err = stats_lin_data[:,1]
-
-                #Create arrays that will be used to fill the complete summary arrays
-                tot_lin_z = []
-
-                #For list of lists
-                tot_lin_z_ll = []
-
-                #We perform a loop that looks into the bins for k
-                #Doing this for lin
-                #Much easier than doing a for loop because of list comprehension ALSO FASTER
-                tot_ultrasc = 0 #initialize value for ultra large scales
-                tot_linsc = 0 #initialize for lin scales
-                tot_quasisc = 0 #initialize for quasi lin scales
-
-                #k has to fall in the proper bins
-                aux_k_ultra = (stats_lin_k >= ultra_scale_min) & (stats_lin_k < ultra_scale_max)
-                aux_k_lin = (stats_lin_k >= lin_scale_min) & (stats_lin_k < lin_scale_max)
-                aux_k_quasi = (stats_lin_k >= quasi_scale_min) & (stats_lin_k <= quasi_scale_max)
-
-                #Looks at only the regime where clustering affects it
-                if clustering_only == True:
-                    aux_cluster_ultra = (stats_lin_k[aux_k_ultra] > cluster_reg_min) & (stats_lin_k[aux_k_ultra] < cluster_reg_max)
-                    aux_cluster_lin = (stats_lin_k[aux_k_lin] > cluster_reg_min) & (stats_lin_k[aux_k_lin] < cluster_reg_max)
-                    aux_cluster_quasi = (stats_lin_k[aux_k_quasi] > cluster_reg_min) & (stats_lin_k[aux_k_quasi] < cluster_reg_max)
-            
-                   #Calculate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs((stats_lin_err[aux_k_ultra])[aux_cluster_ultra]) / thres)
-                    w_lin = np.log10(np.abs((stats_lin_err[aux_k_lin])[aux_cluster_lin]) / thres)
-                    w_quasi = np.log10(np.abs((stats_lin_err[aux_k_quasi])[aux_cluster_quasi]) / thres)
-
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-
-                    tot_ultrasc = np.sum(w_ultra)
-                    tot_linsc = np.sum(w_lin)
-                    tot_quasisc = np.sum(w_quasi)
-                #calculates imprecision in any regime
-                if clustering_only == False:
-                    #caluclate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs(stats_lin_err[aux_k_ultra]) / thres)
-                    w_lin = np.log10(np.abs(stats_lin_err[aux_k_lin]) / thres)
-                    w_quasi = np.log10(np.abs(stats_lin_err[aux_k_quasi]) / thres)
-    
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-
-                    #calculate the totals
-                    tot_ultrasc = np.sum(w_ultra)
-                    tot_linsc = np.sum(w_lin)
-                    tot_quasisc = np.sum(w_quasi)
-        
-        
-                #Append these values to our z summary stat
-                #For list only
-                tot_lin_z = np.append(tot_lin_z, tot_ultrasc)
-                tot_lin_z = np.append(tot_lin_z, tot_linsc)
-                tot_lin_z = np.append(tot_lin_z, tot_quasisc)
-
-                #For list of lists
-                tot_lin_z_ll.append(tot_ultrasc)
-                tot_lin_z_ll.append(tot_linsc)
-                tot_lin_z_ll.append(tot_quasisc)
-
-                #Append these values for the general z stat
-                #For list only
-                tot_lin = np.append(tot_lin, tot_lin_z)
-                #For list of lists
-                tot_lin_ll.append(tot_lin_z_ll)
-
-            #Appending the values for the k ranges
-            tot_lin_k1_z1 = np.append(tot_lin_k1_z1, tot_lin_ll[0][0])
-            tot_lin_k2_z1 = np.append(tot_lin_k2_z1, tot_lin_ll[0][1])
-            tot_lin_k3_z1 = np.append(tot_lin_k3_z1, tot_lin_ll[0][2])
-
-            tot_lin_k1_z2 = np.append(tot_lin_k1_z2, tot_lin_ll[1][0])
-            tot_lin_k2_z2 = np.append(tot_lin_k2_z2, tot_lin_ll[1][1])
-            tot_lin_k3_z2 = np.append(tot_lin_k3_z2, tot_lin_ll[1][2])
-
-            tot_lin_k1_z3 = np.append(tot_lin_k1_z3, tot_lin_ll[2][0])
-            tot_lin_k2_z3 = np.append(tot_lin_k2_z3, tot_lin_ll[2][1])
-            tot_lin_k3_z3 = np.append(tot_lin_k3_z3, tot_lin_ll[2][2])
-
-            tot_lin_k1_z4 = np.append(tot_lin_k1_z4, tot_lin_ll[3][0])
-            tot_lin_k2_z4 = np.append(tot_lin_k2_z4, tot_lin_ll[3][1])
-            tot_lin_k3_z4 = np.append(tot_lin_k3_z4, tot_lin_ll[3][2])
-
-            tot_lin_k1_z5 = np.append(tot_lin_k1_z5, tot_lin_ll[4][0])
-            tot_lin_k2_z5 = np.append(tot_lin_k2_z5, tot_lin_ll[4][1])
-            tot_lin_k3_z5 = np.append(tot_lin_k3_z5, tot_lin_ll[4][2])
-
-            tot_lin_k1_z6 = np.append(tot_lin_k1_z6, tot_lin_ll[5][0])
-            tot_lin_k2_z6 = np.append(tot_lin_k2_z6, tot_lin_ll[5][1])
-            tot_lin_k3_z6 = np.append(tot_lin_k3_z6, tot_lin_ll[5][2])
-
-            tot_tot_lin = np.append(tot_tot_lin, np.sum(tot_lin))
-
-            print 'Performing this for nonlin'
-            #Gonna generate an array of arrays, with each row corresponding to a different z value
-            #Each columns will correspond to a different bins of k_values
-            tot_nl = []
-
-            #For list of lists
-            tot_nl_ll = []
-
-            for j in range(len(z_vals)):
-                z_val = z_vals[j]
-                z_path ='_z%s.dat' %z_val
-                print 'Performing z_val = ', z_val
-        
-                #For ease in iterating over different z values we use string manipulation
-                stats_nl_path = '../stats/lhs_mpk_err_nl_%05d' %trial
-
-                #Adds the z_path
-                stats_nl_path += z_path
-
-                #Calls the data 
-                stats_nl_data = np.loadtxt(stats_nl_path, skiprows=1)
-    
-                stats_nl_k = stats_nl_data[:,0]
-                stats_nl_err = stats_nl_data[:,1]
-
-                #Create arrays that will be used to fill the complete summary arrays
-                tot_nl_z = []
-
-                #For list of lists
-                tot_nl_z_ll = []
-
-                #We perform a loop that looks into the bins for k
-                #Doing this for lin
-                #Much easier than doing a for loop because of list comprehension ALSO FASTER
-                tot_ultra = 0 #initialize value for ultra large scales
-                tot_lin = 0 #initialize for lin scales
-                tot_quasi = 0 #initialize for quasi lin scales
-
-                #k has to fall in the proper bins
-                aux_k_ultra = (stats_nl_k >= ultra_scale_min) & (stats_nl_k < ultra_scale_max)
-                aux_k_lin = (stats_nl_k >= lin_scale_min) & (stats_nl_k < lin_scale_max)
-                aux_k_quasi = (stats_nl_k >= quasi_scale_min) & (stats_nl_k <= quasi_scale_max)
-
-                #Looks at only the regime where clustering affects it
-                if clustering_only == True:
-                    aux_cluster_ultra = (stats_nl_k[aux_k_ultra] > cluster_reg_min) & (stats_nl_k[aux_k_ultra] < cluster_reg_max)
-                    aux_cluster_lin = (stats_nl_k[aux_k_lin] > cluster_reg_min) & (stats_nl_k[aux_k_lin] < cluster_reg_max)
-                    aux_cluster_quasi = (stats_nl_k[aux_k_quasi] > cluster_reg_min) & (stats_nl_k[aux_k_quasi] < cluster_reg_max)
-            
-                    #Calculate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs((stats_nl_err[aux_k_ultra])[aux_cluster_ultra]) / thres)
-                    w_lin = np.log10(np.abs((stats_nl_err[aux_k_lin])[aux_cluster_lin]) / thres)
-                    w_quasi = np.log10(np.abs((stats_nl_err[aux_k_quasi])[aux_cluster_quasi]) / thres)
-
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-    
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-
-                    tot_ultra = np.sum(w_ultra)
-                    tot_lin = np.sum(w_lin)
-                    tot_quasi = np.sum(w_quasi)
-                #calculates imprecision in any regime
-                if clustering_only == False:
-                    #caluclate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs(stats_nl_err[aux_k_ultra]) / thres)
-                    w_lin = np.log10(np.abs(stats_nl_err[aux_k_lin]) / thres)
-                    w_quasi = np.log10(np.abs(stats_nl_err[aux_k_quasi]) / thres)
-
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-    
-                    #calculate the totals
-                    tot_ultra = np.sum(w_ultra)
-                    tot_lin = np.sum(w_lin)
-                    tot_quasi = np.sum(w_quasi)
-        
-        
-                #Append these values to our z summary stat
-                #For list only
-                tot_nl_z = np.append(tot_nl_z, tot_ultra)
-                tot_nl_z = np.append(tot_nl_z, tot_lin)
-                tot_nl_z = np.append(tot_nl_z, tot_quasi)
-
-                #For list of lists
-                tot_nl_z_ll.append(tot_ultra)
-                tot_nl_z_ll.append(tot_lin)
-                tot_nl_z_ll.append(tot_quasi)
-
-                #Append these values for the general z stat
-                #For list only
-                tot_nl = np.append(tot_nl, tot_nl_z)
-                #For list of lists
-                tot_nl_ll.append(tot_nl_z_ll)
-
-            #Appending the values for the k ranges
-            tot_nl_k1_z1 = np.append(tot_nl_k1_z1, tot_nl_ll[0][0])
-            tot_nl_k2_z1 = np.append(tot_nl_k2_z1, tot_nl_ll[0][1])
-            tot_nl_k3_z1 = np.append(tot_nl_k3_z1, tot_nl_ll[0][2])
-
-            tot_nl_k1_z2 = np.append(tot_nl_k1_z2, tot_nl_ll[1][0])
-            tot_nl_k2_z2 = np.append(tot_nl_k2_z2, tot_nl_ll[1][1])
-            tot_nl_k3_z2 = np.append(tot_nl_k3_z2, tot_nl_ll[1][2])
-
-            tot_nl_k1_z3 = np.append(tot_nl_k1_z3, tot_nl_ll[2][0])
-            tot_nl_k2_z3 = np.append(tot_nl_k2_z3, tot_nl_ll[2][1])
-            tot_nl_k3_z3 = np.append(tot_nl_k3_z3, tot_nl_ll[2][2])
-
-            tot_nl_k1_z4 = np.append(tot_nl_k1_z4, tot_nl_ll[3][0])
-            tot_nl_k2_z4 = np.append(tot_nl_k2_z4, tot_nl_ll[3][1])
-            tot_nl_k3_z4 = np.append(tot_nl_k3_z4, tot_nl_ll[3][2])
-
-            tot_nl_k1_z5 = np.append(tot_nl_k1_z5, tot_nl_ll[4][0])
-            tot_nl_k2_z5 = np.append(tot_nl_k2_z5, tot_nl_ll[4][1])
-            tot_nl_k3_z5 = np.append(tot_nl_k3_z5, tot_nl_ll[4][2])
-
-            tot_nl_k1_z6 = np.append(tot_nl_k1_z6, tot_nl_ll[5][0])
-            tot_nl_k2_z6 = np.append(tot_nl_k2_z6, tot_nl_ll[5][1])
-            tot_nl_k3_z6 = np.append(tot_nl_k3_z6, tot_nl_ll[5][2])
-
-            tot_tot_nl = np.append(tot_tot_nl,np.sum(tot_nl))
-            print 'Performing this for lin precise'
-            #Gonna generate an array of arrays, with each row corresponding to a different z value
-            #Each columns will correspond to a different bins of k_values
-            tot_lin_pre = []
-
-            #For list of lists
-            tot_lin_pre_ll = []
-
-            for j in range(len(z_vals)):
-                z_val = z_vals[j]
-                z_path ='_z%s.dat' %z_val
-                print 'Performing z_val = ', z_val
-        
-                #For ease in iterating over different z values we use string manipulation
-                stats_lin_pre_path = '../stats/lhs_mpk_err_lin_pk_%05d' %trial
-
-                #Adds the z_path
-                stats_lin_pre_path += z_path
-
-                #Calls the data 
-                stats_lin_pre_data = np.loadtxt(stats_lin_pre_path, skiprows=1)
-
-                stats_lin_pre_k = stats_lin_pre_data[:,0]
-                stats_lin_pre_err = stats_lin_pre_data[:,1]
-
-                #Create arrays that will be used to fill the complete summary arrays
-                tot_lin_pre_z = []
-
-                #For list of lists
-                tot_lin_pre_z_ll = []
-
-                #We perform a loop that looks into the bins for k
-                #Doing this for lin
-                #Much easier than doing a for loop because of list comprehension ALSO FASTER
-                tot_ultra = 0 #initialize value for ultra large scales
-                tot_lin = 0 #initialize for lin scales
-                tot_quasi = 0 #initialize for quasi lin scales
-
-                #k has to fall in the proper bins
-                aux_k_ultra = (stats_lin_pre_k >= ultra_scale_min) & (stats_lin_pre_k < ultra_scale_max)
-                aux_k_lin = (stats_lin_pre_k >= lin_scale_min) & (stats_lin_pre_k < lin_scale_max)
-                aux_k_quasi = (stats_lin_pre_k >= quasi_scale_min) & (stats_lin_pre_k <= quasi_scale_max)
-
-                #Looks at only the regime where clustering affects it
-                if clustering_only == True:
-                    aux_cluster_ultra = (stats_lin_pre_k[aux_k_ultra] > cluster_reg_min) & (stats_lin_pre_k[aux_k_ultra] < cluster_reg_max)
-                    aux_cluster_lin = (stats_lin_pre_k[aux_k_lin] > cluster_reg_min) & (stats_lin_pre_k[aux_k_lin] < cluster_reg_max)
-                    aux_cluster_quasi = (stats_lin_pre_k[aux_k_quasi] > cluster_reg_min) & (stats_lin_pre_k[aux_k_quasi] < cluster_reg_max)
-                
-                    #Calculate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs((stats_lin_pre_err[aux_k_ultra])[aux_cluster_ultra]) / thres)
-                    w_lin = np.log10(np.abs((stats_lin_pre_err[aux_k_lin])[aux_cluster_lin]) / thres)
-                    w_quasi = np.log10(np.abs((stats_lin_pre_err[aux_k_quasi])[aux_cluster_quasi]) / thres)
-
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-
-                    tot_ultra = np.sum(w_ultra)
-                    tot_lin = np.sum(w_lin)
-                    tot_quasi = np.sum(w_quasi)
-                #calculates imprecision in any regime
-                if clustering_only == False:
-                    #caluclate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs(stats_lin_pre_err[aux_k_ultra]) / thres)
-                    w_lin = np.log10(np.abs(stats_lin_pre_err[aux_k_lin]) / thres)
-                    w_quasi = np.log10(np.abs(stats_lin_pre_err[aux_k_quasi]) / thres)
-        
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-
-                    #calculate the totals
-                    tot_ultra = np.sum(w_ultra)
-                    tot_lin = np.sum(w_lin)
-                    tot_quasi = np.sum(w_quasi)
-            
-            
-                #Append these values to our z summary stat
-                #For list only
-                tot_lin_pre_z = np.append(tot_lin_pre_z, tot_ultra)
-                tot_lin_pre_z = np.append(tot_lin_pre_z, tot_lin)
-                tot_lin_pre_z = np.append(tot_lin_pre_z, tot_quasi)
-
-                #For list of lists
-                tot_lin_pre_z_ll.append(tot_ultra)
-                tot_lin_pre_z_ll.append(tot_lin)
-                tot_lin_pre_z_ll.append(tot_quasi)
-
-                #Append these values for the general z stat
-                #For list only
-                tot_lin_pre = np.append(tot_lin_pre, tot_lin_pre_z)
-                #For list of lists
-                tot_lin_pre_ll.append(tot_lin_pre_z_ll)
-
-            #Appending the values for the k ranges
-            tot_lin_pre_k1_z1 = np.append(tot_lin_pre_k1_z1, tot_lin_pre_ll[0][0])
-            tot_lin_pre_k2_z1 = np.append(tot_lin_pre_k2_z1, tot_lin_pre_ll[0][1])
-            tot_lin_pre_k3_z1 = np.append(tot_lin_pre_k3_z1, tot_lin_pre_ll[0][2])
-
-            tot_lin_pre_k1_z2 = np.append(tot_lin_pre_k1_z2, tot_lin_pre_ll[1][0])
-            tot_lin_pre_k2_z2 = np.append(tot_lin_pre_k2_z2, tot_lin_pre_ll[1][1])
-            tot_lin_pre_k3_z2 = np.append(tot_lin_pre_k3_z2, tot_lin_pre_ll[1][2])
-
-            tot_lin_pre_k1_z3 = np.append(tot_lin_pre_k1_z3, tot_lin_pre_ll[2][0])
-            tot_lin_pre_k2_z3 = np.append(tot_lin_pre_k2_z3, tot_lin_pre_ll[2][1])
-            tot_lin_pre_k3_z3 = np.append(tot_lin_pre_k3_z3, tot_lin_pre_ll[2][2])
-
-            tot_lin_pre_k1_z4 = np.append(tot_lin_pre_k1_z4, tot_lin_pre_ll[3][0])
-            tot_lin_pre_k2_z4 = np.append(tot_lin_pre_k2_z4, tot_lin_pre_ll[3][1])
-            tot_lin_pre_k3_z4 = np.append(tot_lin_pre_k3_z4, tot_lin_pre_ll[3][2])
-
-            tot_lin_pre_k1_z5 = np.append(tot_lin_pre_k1_z5, tot_lin_pre_ll[4][0])
-            tot_lin_pre_k2_z5 = np.append(tot_lin_pre_k2_z5, tot_lin_pre_ll[4][1])
-            tot_lin_pre_k3_z5 = np.append(tot_lin_pre_k3_z5, tot_lin_pre_ll[4][2])
-
-            tot_lin_pre_k1_z6 = np.append(tot_lin_pre_k1_z6, tot_lin_pre_ll[5][0])
-            tot_lin_pre_k2_z6 = np.append(tot_lin_pre_k2_z6, tot_lin_pre_ll[5][1])
-            tot_lin_pre_k3_z6 = np.append(tot_lin_pre_k3_z6, tot_lin_pre_ll[5][2])
-
-            tot_tot_lin_pre = np.append(tot_tot_lin_pre, np.sum(tot_lin_pre))
-
-            print 'Performing this for nonlin precision'
-            #Gonna generate an array of arrays, with each row corresponding to a different z value
-            #Each columns will correspond to a different bins of k_values
-            tot_nl_pre = []
-
-            #For list of lists
-            tot_nl_pre_ll = []
-
-            for j in range(len(z_vals)):
-                z_val = z_vals[j]
-                z_path ='_z%s.dat' %z_val
-                print 'Performing z_val = ', z_val
-            
-                #For ease in iterating over different z values we use string manipulation
-                stats_nl_pre_path = '../stats/lhs_mpk_err_nl_pk_%05d' %trial
-
-                #Adds the z_path
-                stats_nl_pre_path += z_path
-
-                #Calls the data 
-                stats_nl_pre_data = np.loadtxt(stats_nl_pre_path, skiprows=1)
-
-                stats_nl_pre_k = stats_nl_pre_data[:,0]
-                stats_nl_pre_err = stats_nl_pre_data[:,1]
-
-                #Create arrays that will be used to fill the complete summary arrays
-                tot_nl_pre_z = []
-
-                #For list of lists
-                tot_nl_pre_z_ll = []
-
-                #We perform a loop that looks into the bins for k
-                #Doing this for lin
-                #Much easier than doing a for loop because of list comprehension ALSO FASTER
-                tot_ultra = 0 #initialize value for ultra large scales
-                tot_lin = 0 #initialize for lin scales
-                tot_quasi = 0 #initialize for quasi lin scales
-
-                #k has to fall in the proper bins
-                aux_k_ultra = (stats_nl_pre_k >= ultra_scale_min) & (stats_nl_pre_k < ultra_scale_max)
-                aux_k_lin = (stats_nl_pre_k >= lin_scale_min) & (stats_nl_pre_k < lin_scale_max)
-                aux_k_quasi = (stats_nl_pre_k >= quasi_scale_min) & (stats_nl_pre_k <= quasi_scale_max)
-
-                #Looks at only the regime where clustering affects it
-                if clustering_only == True:
-                    aux_cluster_ultra = (stats_nl_pre_k[aux_k_ultra] > cluster_reg_min) & (stats_nl_pre_k[aux_k_ultra] < cluster_reg_max)
-                    aux_cluster_lin = (stats_nl_pre_k[aux_k_lin] > cluster_reg_min) & (stats_nl_pre_k[aux_k_lin] < cluster_reg_max)
-                    aux_cluster_quasi = (stats_nl_pre_k[aux_k_quasi] > cluster_reg_min) & (stats_nl_pre_k[aux_k_quasi] < cluster_reg_max)
-                
-                    #Calculate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs((stats_nl_pre_err[aux_k_ultra])[aux_cluster_ultra]) / thres)
-                    w_lin = np.log10(np.abs((stats_nl_pre_err[aux_k_lin])[aux_cluster_lin]) / thres)
-                    w_quasi = np.log10(np.abs((stats_nl_pre_err[aux_k_quasi])[aux_cluster_quasi]) / thres)
-
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-
-                    tot_ultra = np.sum(w_ultra)
-                    tot_lin = np.sum(w_lin)
-                    tot_quasi = np.sum(w_quasi)
-                #calculates imprecision in any regime
-                if clustering_only == False:
-                    #caluclate the weights i.e. how badly has this bin failed
-                    w_ultra = np.log10(np.abs(stats_nl_pre_err[aux_k_ultra]) / thres)
-                    w_lin = np.log10(np.abs(stats_nl_pre_err[aux_k_lin]) / thres)
-                    w_quasi = np.log10(np.abs(stats_nl_pre_err[aux_k_quasi]) / thres)
-
-                    #Make all the negative values = 0, since that means they didn't pass the threshold
-                    aux_ultra_neg = w_ultra < 0.
-                    aux_lin_neg = w_lin < 0.
-                    aux_quasi_neg = w_quasi < 0.
-
-                    w_ultra[aux_ultra_neg] = 0
-                    w_lin[aux_lin_neg] = 0
-                    w_quasi[aux_quasi_neg] = 0
-
-                    #calculate the totals
-                    tot_ultra = np.sum(w_ultra)
-                    tot_lin = np.sum(w_lin)
-                    tot_quasi = np.sum(w_quasi)
-            
-            
-                #Append these values to our z summary stat
-                #For list only
-                tot_nl_pre_z = np.append(tot_nl_pre_z, tot_ultra)
-                tot_nl_pre_z = np.append(tot_nl_pre_z, tot_lin)
-                tot_nl_pre_z = np.append(tot_nl_pre_z, tot_quasi)
-
-                #For list of lists
-                tot_nl_pre_z_ll.append(tot_ultra)
-                tot_nl_pre_z_ll.append(tot_lin)
-                tot_nl_pre_z_ll.append(tot_quasi)
-
-                #Append these values for the general z stat
-                #For list only
-                tot_nl_pre = np.append(tot_nl_pre, tot_nl_pre_z)
-                #For list of lists
-                tot_nl_pre_ll.append(tot_nl_pre_z_ll)
-
-            #Appending the values for the k ranges
-            tot_nl_pre_k1_z1 = np.append(tot_nl_pre_k1_z1, tot_nl_pre_ll[0][0])
-            tot_nl_pre_k2_z1 = np.append(tot_nl_pre_k2_z1, tot_nl_pre_ll[0][1])
-            tot_nl_pre_k3_z1 = np.append(tot_nl_pre_k3_z1, tot_nl_pre_ll[0][2])
-
-            tot_nl_pre_k1_z2 = np.append(tot_nl_pre_k1_z2, tot_nl_pre_ll[1][0])
-            tot_nl_pre_k2_z2 = np.append(tot_nl_pre_k2_z2, tot_nl_pre_ll[1][1])
-            tot_nl_pre_k3_z2 = np.append(tot_nl_pre_k3_z2, tot_nl_pre_ll[1][2])
-
-            tot_nl_pre_k1_z3 = np.append(tot_nl_pre_k1_z3, tot_nl_pre_ll[2][0])
-            tot_nl_pre_k2_z3 = np.append(tot_nl_pre_k2_z3, tot_nl_pre_ll[2][1])
-            tot_nl_pre_k3_z3 = np.append(tot_nl_pre_k3_z3, tot_nl_pre_ll[2][2])
-
-            tot_nl_pre_k1_z4 = np.append(tot_nl_pre_k1_z4, tot_nl_pre_ll[3][0])
-            tot_nl_pre_k2_z4 = np.append(tot_nl_pre_k2_z4, tot_nl_pre_ll[3][1])
-            tot_nl_pre_k3_z4 = np.append(tot_nl_pre_k3_z4, tot_nl_pre_ll[3][2])
-
-            tot_nl_pre_k1_z5 = np.append(tot_nl_pre_k1_z5, tot_nl_pre_ll[4][0])
-            tot_nl_pre_k2_z5 = np.append(tot_nl_pre_k2_z5, tot_nl_pre_ll[4][1])
-            tot_nl_pre_k3_z5 = np.append(tot_nl_pre_k3_z5, tot_nl_pre_ll[4][2])
-
-            tot_nl_pre_k1_z6 = np.append(tot_nl_pre_k1_z6, tot_nl_pre_ll[5][0])
-            tot_nl_pre_k2_z6 = np.append(tot_nl_pre_k2_z6, tot_nl_pre_ll[5][1])
-            tot_nl_pre_k3_z6 = np.append(tot_nl_pre_k3_z6, tot_nl_pre_ll[5][2])
-
-            tot_tot_nl_pre = np.append(tot_tot_nl_pre, np.sum(tot_nl_pre))
-    
-        #For list of lists, will be useful in the future. TRUST
-        tot_lin_k1_z1_ll.append(tot_lin_k1_z1)
-        tot_lin_k2_z1_ll.append(tot_lin_k2_z1)
-        tot_lin_k3_z1_ll.append(tot_lin_k3_z1)
-
-        tot_lin_k1_z2_ll.append(tot_lin_k1_z2)
-        tot_lin_k2_z2_ll.append(tot_lin_k2_z2)
-        tot_lin_k3_z2_ll.append(tot_lin_k3_z2)
-
-        tot_lin_k1_z3_ll.append(tot_lin_k1_z3)
-        tot_lin_k2_z3_ll.append(tot_lin_k2_z3)
-        tot_lin_k3_z3_ll.append(tot_lin_k3_z3)
-
-        tot_lin_k1_z4_ll.append(tot_lin_k1_z4)
-        tot_lin_k2_z4_ll.append(tot_lin_k2_z4)
-        tot_lin_k3_z4_ll.append(tot_lin_k3_z4)
-
-        tot_lin_k1_z5_ll.append(tot_lin_k1_z5)
-        tot_lin_k2_z5_ll.append(tot_lin_k2_z5)
-        tot_lin_k3_z5_ll.append(tot_lin_k3_z5)
-
-        tot_lin_k1_z6_ll.append(tot_lin_k1_z6)
-        tot_lin_k2_z6_ll.append(tot_lin_k2_z6)
-        tot_lin_k3_z6_ll.append(tot_lin_k3_z6)
-
-        tot_nl_k1_z1_ll.append(tot_nl_k1_z1)
-        tot_nl_k2_z1_ll.append(tot_nl_k2_z1)
-        tot_nl_k3_z1_ll.append(tot_nl_k3_z1)
-
-        tot_nl_k1_z2_ll.append(tot_nl_k1_z2)
-        tot_nl_k2_z2_ll.append(tot_nl_k2_z2)
-        tot_nl_k3_z2_ll.append(tot_nl_k3_z2)
-
-        tot_nl_k1_z3_ll.append(tot_nl_k1_z3)
-        tot_nl_k2_z3_ll.append(tot_nl_k2_z3)
-        tot_nl_k3_z3_ll.append(tot_nl_k3_z3)
-
-        tot_nl_k1_z4_ll.append(tot_nl_k1_z4)
-        tot_nl_k2_z4_ll.append(tot_nl_k2_z4)
-        tot_nl_k3_z4_ll.append(tot_nl_k3_z4)
-
-        tot_nl_k1_z5_ll.append(tot_nl_k1_z5)
-        tot_nl_k2_z5_ll.append(tot_nl_k2_z5)
-        tot_nl_k3_z5_ll.append(tot_nl_k3_z5)
-
-        tot_nl_k1_z6_ll.append(tot_nl_k1_z6)
-        tot_nl_k2_z6_ll.append(tot_nl_k2_z6)
-        tot_nl_k3_z6_ll.append(tot_nl_k3_z6)
-
-        tot_lin_pre_k1_z1_ll.append(tot_lin_pre_k1_z1)
-        tot_lin_pre_k2_z1_ll.append(tot_lin_pre_k2_z1)
-        tot_lin_pre_k3_z1_ll.append(tot_lin_pre_k3_z1)
-
-        tot_lin_pre_k1_z2_ll.append(tot_lin_pre_k1_z2)
-        tot_lin_pre_k2_z2_ll.append(tot_lin_pre_k2_z2)
-        tot_lin_pre_k3_z2_ll.append(tot_lin_pre_k3_z2)
-
-        tot_lin_pre_k1_z3_ll.append(tot_lin_pre_k1_z3)
-        tot_lin_pre_k2_z3_ll.append(tot_lin_pre_k2_z3)
-        tot_lin_pre_k3_z3_ll.append(tot_lin_pre_k3_z3)
-
-        tot_lin_pre_k1_z4_ll.append(tot_lin_pre_k1_z4)
-        tot_lin_pre_k2_z4_ll.append(tot_lin_pre_k2_z4)
-        tot_lin_pre_k3_z4_ll.append(tot_lin_pre_k3_z4)
-
-        tot_lin_pre_k1_z5_ll.append(tot_lin_pre_k1_z5)
-        tot_lin_pre_k2_z5_ll.append(tot_lin_pre_k2_z5)
-        tot_lin_pre_k3_z5_ll.append(tot_lin_pre_k3_z5)
-
-        tot_lin_pre_k1_z6_ll.append(tot_lin_pre_k1_z6)
-        tot_lin_pre_k2_z6_ll.append(tot_lin_pre_k2_z6)
-        tot_lin_pre_k3_z6_ll.append(tot_lin_pre_k3_z6)
-
-        tot_nl_pre_k1_z1_ll.append(tot_nl_pre_k1_z1)
-        tot_nl_pre_k2_z1_ll.append(tot_nl_pre_k2_z1)
-        tot_nl_pre_k3_z1_ll.append(tot_nl_pre_k3_z1)
-
-        tot_nl_pre_k1_z2_ll.append(tot_nl_pre_k1_z2)
-        tot_nl_pre_k2_z2_ll.append(tot_nl_pre_k2_z2)
-        tot_nl_pre_k3_z2_ll.append(tot_nl_pre_k3_z2)
-
-        tot_nl_pre_k1_z3_ll.append(tot_nl_pre_k1_z3)
-        tot_nl_pre_k2_z3_ll.append(tot_nl_pre_k2_z3)
-        tot_nl_pre_k3_z3_ll.append(tot_nl_pre_k3_z3)
-
-        tot_nl_pre_k1_z4_ll.append(tot_nl_pre_k1_z4)
-        tot_nl_pre_k2_z4_ll.append(tot_nl_pre_k2_z4)
-        tot_nl_pre_k3_z4_ll.append(tot_nl_pre_k3_z4)
-
-        tot_nl_pre_k1_z5_ll.append(tot_nl_pre_k1_z5)
-        tot_nl_pre_k2_z5_ll.append(tot_nl_pre_k2_z5)
-        tot_nl_pre_k3_z5_ll.append(tot_nl_pre_k3_z5)
-
-        tot_nl_pre_k1_z6_ll.append(tot_nl_pre_k1_z6)
-        tot_nl_pre_k2_z6_ll.append(tot_nl_pre_k2_z6)
-        tot_nl_pre_k3_z6_ll.append(tot_nl_pre_k3_z6)
-
-
-    #Creates a dictionary since that's what ColumnDataSource takes in
-    #data_lin = {'tot_tot_lin':tot_tot_lin,
-    data_lin = {'tot_lin_h1_k1_z1':tot_lin_k1_z1_ll[0],
-                'tot_lin_h1_k2_z1':tot_lin_k2_z1_ll[0],
-                'tot_lin_h1_k3_z1':tot_lin_k3_z1_ll[0],
-                'tot_lin_h1_k1_z2':tot_lin_k1_z2_ll[0],
-                'tot_lin_h1_k2_z2':tot_lin_k2_z2_ll[0],
-                'tot_lin_h1_k3_z2':tot_lin_k3_z2_ll[0],
-                'tot_lin_h1_k1_z3':tot_lin_k1_z3_ll[0],
-                'tot_lin_h1_k2_z3':tot_lin_k2_z3_ll[0],
-                'tot_lin_h1_k3_z3':tot_lin_k3_z3_ll[0],
-                'tot_lin_h1_k1_z4':tot_lin_k1_z4_ll[0],
-                'tot_lin_h1_k2_z4':tot_lin_k2_z4_ll[0],
-                'tot_lin_h1_k3_z4':tot_lin_k3_z4_ll[0],
-                'tot_lin_h1_k1_z5':tot_lin_k1_z5_ll[0],
-                'tot_lin_h1_k2_z5':tot_lin_k2_z5_ll[0],
-                'tot_lin_h1_k3_z5':tot_lin_k3_z5_ll[0],
-                'tot_lin_h1_k1_z6':tot_lin_k1_z6_ll[0],
-                'tot_lin_h1_k2_z6':tot_lin_k2_z6_ll[0],
-                'tot_lin_h1_k3_z6':tot_lin_k3_z6_ll[0],
-                'tot_lin_h2_k1_z1':tot_lin_k1_z1_ll[1],
-                'tot_lin_h2_k2_z1':tot_lin_k2_z1_ll[1],
-                'tot_lin_h2_k3_z1':tot_lin_k3_z1_ll[1],
-                'tot_lin_h2_k1_z2':tot_lin_k1_z2_ll[1],
-                'tot_lin_h2_k2_z2':tot_lin_k2_z2_ll[1],
-                'tot_lin_h2_k3_z2':tot_lin_k3_z2_ll[1],
-                'tot_lin_h2_k1_z3':tot_lin_k1_z3_ll[1],
-                'tot_lin_h2_k2_z3':tot_lin_k2_z3_ll[1],
-                'tot_lin_h2_k3_z3':tot_lin_k3_z3_ll[1],
-                'tot_lin_h2_k1_z4':tot_lin_k1_z4_ll[1],
-                'tot_lin_h2_k2_z4':tot_lin_k2_z4_ll[1],
-                'tot_lin_h2_k3_z4':tot_lin_k3_z4_ll[1],
-                'tot_lin_h2_k1_z5':tot_lin_k1_z5_ll[1],
-                'tot_lin_h2_k2_z5':tot_lin_k2_z5_ll[1],
-                'tot_lin_h2_k3_z5':tot_lin_k3_z5_ll[1],
-                'tot_lin_h2_k1_z6':tot_lin_k1_z6_ll[1],
-                'tot_lin_h2_k2_z6':tot_lin_k2_z6_ll[1],
-                'tot_lin_h2_k3_z6':tot_lin_k3_z6_ll[1],
-                'tot_lin_h3_k1_z1':tot_lin_k1_z1_ll[2],
-                'tot_lin_h3_k2_z1':tot_lin_k2_z1_ll[2],
-                'tot_lin_h3_k3_z1':tot_lin_k3_z1_ll[2],
-                'tot_lin_h3_k1_z2':tot_lin_k1_z2_ll[2],
-                'tot_lin_h3_k2_z2':tot_lin_k2_z2_ll[2],
-                'tot_lin_h3_k3_z2':tot_lin_k3_z2_ll[2],
-                'tot_lin_h3_k1_z3':tot_lin_k1_z3_ll[2],
-                'tot_lin_h3_k2_z3':tot_lin_k2_z3_ll[2],
-                'tot_lin_h3_k3_z3':tot_lin_k3_z3_ll[2],
-                'tot_lin_h3_k1_z4':tot_lin_k1_z4_ll[2],
-                'tot_lin_h3_k2_z4':tot_lin_k2_z4_ll[2],
-                'tot_lin_h3_k3_z4':tot_lin_k3_z4_ll[2],
-                'tot_lin_h3_k1_z5':tot_lin_k1_z5_ll[2],
-                'tot_lin_h3_k2_z5':tot_lin_k2_z5_ll[2],
-                'tot_lin_h3_k3_z5':tot_lin_k3_z5_ll[2],
-                'tot_lin_h3_k1_z6':tot_lin_k1_z6_ll[2],
-                'tot_lin_h3_k2_z6':tot_lin_k2_z6_ll[2],
-                'tot_lin_h3_k3_z6':tot_lin_k3_z6_ll[2],
-                'tot_lin_h4_k1_z1':tot_lin_k1_z1_ll[3],
-                'tot_lin_h4_k2_z1':tot_lin_k2_z1_ll[3],
-                'tot_lin_h4_k3_z1':tot_lin_k3_z1_ll[3],
-                'tot_lin_h4_k1_z2':tot_lin_k1_z2_ll[3],
-                'tot_lin_h4_k2_z2':tot_lin_k2_z2_ll[3],
-                'tot_lin_h4_k3_z2':tot_lin_k3_z2_ll[3],
-                'tot_lin_h4_k1_z3':tot_lin_k1_z3_ll[3],
-                'tot_lin_h4_k2_z3':tot_lin_k2_z3_ll[3],
-                'tot_lin_h4_k3_z3':tot_lin_k3_z3_ll[3],
-                'tot_lin_h4_k1_z4':tot_lin_k1_z4_ll[3],
-                'tot_lin_h4_k2_z4':tot_lin_k2_z4_ll[3],
-                'tot_lin_h4_k3_z4':tot_lin_k3_z4_ll[3],
-                'tot_lin_h4_k1_z5':tot_lin_k1_z5_ll[3],
-                'tot_lin_h4_k2_z5':tot_lin_k2_z5_ll[3],
-                'tot_lin_h4_k3_z5':tot_lin_k3_z5_ll[3],
-                'tot_lin_h4_k1_z6':tot_lin_k1_z6_ll[3],
-                'tot_lin_h4_k2_z6':tot_lin_k2_z6_ll[3],
-                'tot_lin_h4_k3_z6':tot_lin_k3_z6_ll[3],
-                'tot_lin_h5_k1_z1':tot_lin_k1_z1_ll[4],
-                'tot_lin_h5_k2_z1':tot_lin_k2_z1_ll[4],
-                'tot_lin_h5_k3_z1':tot_lin_k3_z1_ll[4],
-                'tot_lin_h5_k1_z2':tot_lin_k1_z2_ll[4],
-                'tot_lin_h5_k2_z2':tot_lin_k2_z2_ll[4],
-                'tot_lin_h5_k3_z2':tot_lin_k3_z2_ll[4],
-                'tot_lin_h5_k1_z3':tot_lin_k1_z3_ll[4],
-                'tot_lin_h5_k2_z3':tot_lin_k2_z3_ll[4],
-                'tot_lin_h5_k3_z3':tot_lin_k3_z3_ll[4],
-                'tot_lin_h5_k1_z4':tot_lin_k1_z4_ll[4],
-                'tot_lin_h5_k2_z4':tot_lin_k2_z4_ll[4],
-                'tot_lin_h5_k3_z4':tot_lin_k3_z4_ll[4],
-                'tot_lin_h5_k1_z5':tot_lin_k1_z5_ll[4],
-                'tot_lin_h5_k2_z5':tot_lin_k2_z5_ll[4],
-                'tot_lin_h5_k3_z5':tot_lin_k3_z5_ll[4],
-                'tot_lin_h5_k1_z6':tot_lin_k1_z6_ll[4],
-                'tot_lin_h5_k2_z6':tot_lin_k2_z6_ll[4],
-                'tot_lin_h5_k3_z6':tot_lin_k3_z6_ll[4],
-                'tot_lin_h6_k1_z1':tot_lin_k1_z1_ll[5],
-                'tot_lin_h6_k2_z1':tot_lin_k2_z1_ll[5],
-                'tot_lin_h6_k3_z1':tot_lin_k3_z1_ll[5],
-                'tot_lin_h6_k1_z2':tot_lin_k1_z2_ll[5],
-                'tot_lin_h6_k2_z2':tot_lin_k2_z2_ll[5],
-                'tot_lin_h6_k3_z2':tot_lin_k3_z2_ll[5],
-                'tot_lin_h6_k1_z3':tot_lin_k1_z3_ll[5],
-                'tot_lin_h6_k2_z3':tot_lin_k2_z3_ll[5],
-                'tot_lin_h6_k3_z3':tot_lin_k3_z3_ll[5],
-                'tot_lin_h6_k1_z4':tot_lin_k1_z4_ll[5],
-                'tot_lin_h6_k2_z4':tot_lin_k2_z4_ll[5],
-                'tot_lin_h6_k3_z4':tot_lin_k3_z4_ll[5],
-                'tot_lin_h6_k1_z5':tot_lin_k1_z5_ll[5],
-                'tot_lin_h6_k2_z5':tot_lin_k2_z5_ll[5],
-                'tot_lin_h6_k3_z5':tot_lin_k3_z5_ll[5],
-                'tot_lin_h6_k1_z6':tot_lin_k1_z6_ll[5],
-                'tot_lin_h6_k2_z6':tot_lin_k2_z6_ll[5],
-                'tot_lin_h6_k3_z6':tot_lin_k3_z6_ll[5]}
-    #data_nl = { 'tot_tot_nl':tot_tot_nl,
-    data_nl = { 'tot_nl_h1_k1_z1':tot_nl_k1_z1_ll[0],
-                'tot_nl_h1_k2_z1':tot_nl_k2_z1_ll[0],
-                'tot_nl_h1_k3_z1':tot_nl_k3_z1_ll[0],
-                'tot_nl_h1_k1_z2':tot_nl_k1_z2_ll[0],
-                'tot_nl_h1_k2_z2':tot_nl_k2_z2_ll[0],
-                'tot_nl_h1_k3_z2':tot_nl_k3_z2_ll[0],
-                'tot_nl_h1_k1_z3':tot_nl_k1_z3_ll[0],
-                'tot_nl_h1_k2_z3':tot_nl_k2_z3_ll[0],
-                'tot_nl_h1_k3_z3':tot_nl_k3_z3_ll[0],
-                'tot_nl_h1_k1_z4':tot_nl_k1_z4_ll[0],
-                'tot_nl_h1_k2_z4':tot_nl_k2_z4_ll[0],
-                'tot_nl_h1_k3_z4':tot_nl_k3_z4_ll[0],
-                'tot_nl_h1_k1_z5':tot_nl_k1_z5_ll[0],
-                'tot_nl_h1_k2_z5':tot_nl_k2_z5_ll[0],
-                'tot_nl_h1_k3_z5':tot_nl_k3_z5_ll[0],
-                'tot_nl_h1_k1_z6':tot_nl_k1_z6_ll[0],
-                'tot_nl_h1_k2_z6':tot_nl_k2_z6_ll[0],
-                'tot_nl_h1_k3_z6':tot_nl_k3_z6_ll[0],
-                'tot_nl_h2_k1_z1':tot_nl_k1_z1_ll[1],
-                'tot_nl_h2_k2_z1':tot_nl_k2_z1_ll[1],
-                'tot_nl_h2_k3_z1':tot_nl_k3_z1_ll[1],
-                'tot_nl_h2_k1_z2':tot_nl_k1_z2_ll[1],
-                'tot_nl_h2_k2_z2':tot_nl_k2_z2_ll[1],
-                'tot_nl_h2_k3_z2':tot_nl_k3_z2_ll[1],
-                'tot_nl_h2_k1_z3':tot_nl_k1_z3_ll[1],
-                'tot_nl_h2_k2_z3':tot_nl_k2_z3_ll[1],
-                'tot_nl_h2_k3_z3':tot_nl_k3_z3_ll[1],
-                'tot_nl_h2_k1_z4':tot_nl_k1_z4_ll[1],
-                'tot_nl_h2_k2_z4':tot_nl_k2_z4_ll[1],
-                'tot_nl_h2_k3_z4':tot_nl_k3_z4_ll[1],
-                'tot_nl_h2_k1_z5':tot_nl_k1_z5_ll[1],
-                'tot_nl_h2_k2_z5':tot_nl_k2_z5_ll[1],
-                'tot_nl_h2_k3_z5':tot_nl_k3_z5_ll[1],
-                'tot_nl_h2_k1_z6':tot_nl_k1_z6_ll[1],
-                'tot_nl_h2_k2_z6':tot_nl_k2_z6_ll[1],
-                'tot_nl_h2_k3_z6':tot_nl_k3_z6_ll[1],
-                'tot_nl_h3_k1_z1':tot_nl_k1_z1_ll[2],
-                'tot_nl_h3_k2_z1':tot_nl_k2_z1_ll[2],
-                'tot_nl_h3_k3_z1':tot_nl_k3_z1_ll[2],
-                'tot_nl_h3_k1_z2':tot_nl_k1_z2_ll[2],
-                'tot_nl_h3_k2_z2':tot_nl_k2_z2_ll[2],
-                'tot_nl_h3_k3_z2':tot_nl_k3_z2_ll[2],
-                'tot_nl_h3_k1_z3':tot_nl_k1_z3_ll[2],
-                'tot_nl_h3_k2_z3':tot_nl_k2_z3_ll[2],
-                'tot_nl_h3_k3_z3':tot_nl_k3_z3_ll[2],
-                'tot_nl_h3_k1_z4':tot_nl_k1_z4_ll[2],
-                'tot_nl_h3_k2_z4':tot_nl_k2_z4_ll[2],
-                'tot_nl_h3_k3_z4':tot_nl_k3_z4_ll[2],
-                'tot_nl_h3_k1_z5':tot_nl_k1_z5_ll[2],
-                'tot_nl_h3_k2_z5':tot_nl_k2_z5_ll[2],
-                'tot_nl_h3_k3_z5':tot_nl_k3_z5_ll[2],
-                'tot_nl_h3_k1_z6':tot_nl_k1_z6_ll[2],
-                'tot_nl_h3_k2_z6':tot_nl_k2_z6_ll[2],
-                'tot_nl_h3_k3_z6':tot_nl_k3_z6_ll[2],
-                'tot_nl_h4_k1_z1':tot_nl_k1_z1_ll[3],
-                'tot_nl_h4_k2_z1':tot_nl_k2_z1_ll[3],
-                'tot_nl_h4_k3_z1':tot_nl_k3_z1_ll[3],
-                'tot_nl_h4_k1_z2':tot_nl_k1_z2_ll[3],
-                'tot_nl_h4_k2_z2':tot_nl_k2_z2_ll[3],
-                'tot_nl_h4_k3_z2':tot_nl_k3_z2_ll[3],
-                'tot_nl_h4_k1_z3':tot_nl_k1_z3_ll[3],
-                'tot_nl_h4_k2_z3':tot_nl_k2_z3_ll[3],
-                'tot_nl_h4_k3_z3':tot_nl_k3_z3_ll[3],
-                'tot_nl_h4_k1_z4':tot_nl_k1_z4_ll[3],
-                'tot_nl_h4_k2_z4':tot_nl_k2_z4_ll[3],
-                'tot_nl_h4_k3_z4':tot_nl_k3_z4_ll[3],
-                'tot_nl_h4_k1_z5':tot_nl_k1_z5_ll[3],
-                'tot_nl_h4_k2_z5':tot_nl_k2_z5_ll[3],
-                'tot_nl_h4_k3_z5':tot_nl_k3_z5_ll[3],
-                'tot_nl_h4_k1_z6':tot_nl_k1_z6_ll[3],
-                'tot_nl_h4_k2_z6':tot_nl_k2_z6_ll[3],
-                'tot_nl_h4_k3_z6':tot_nl_k3_z6_ll[3],
-                'tot_nl_h5_k1_z1':tot_nl_k1_z1_ll[4],
-                'tot_nl_h5_k2_z1':tot_nl_k2_z1_ll[4],
-                'tot_nl_h5_k3_z1':tot_nl_k3_z1_ll[4],
-                'tot_nl_h5_k1_z2':tot_nl_k1_z2_ll[4],
-                'tot_nl_h5_k2_z2':tot_nl_k2_z2_ll[4],
-                'tot_nl_h5_k3_z2':tot_nl_k3_z2_ll[4],
-                'tot_nl_h5_k1_z3':tot_nl_k1_z3_ll[4],
-                'tot_nl_h5_k2_z3':tot_nl_k2_z3_ll[4],
-                'tot_nl_h5_k3_z3':tot_nl_k3_z3_ll[4],
-                'tot_nl_h5_k1_z4':tot_nl_k1_z4_ll[4],
-                'tot_nl_h5_k2_z4':tot_nl_k2_z4_ll[4],
-                'tot_nl_h5_k3_z4':tot_nl_k3_z4_ll[4],
-                'tot_nl_h5_k1_z5':tot_nl_k1_z5_ll[4],
-                'tot_nl_h5_k2_z5':tot_nl_k2_z5_ll[4],
-                'tot_nl_h5_k3_z5':tot_nl_k3_z5_ll[4],
-                'tot_nl_h5_k1_z6':tot_nl_k1_z6_ll[4],
-                'tot_nl_h5_k2_z6':tot_nl_k2_z6_ll[4],
-                'tot_nl_h5_k3_z6':tot_nl_k3_z6_ll[4],
-                'tot_nl_h6_k1_z1':tot_nl_k1_z1_ll[5],
-                'tot_nl_h6_k2_z1':tot_nl_k2_z1_ll[5],
-                'tot_nl_h6_k3_z1':tot_nl_k3_z1_ll[5],
-                'tot_nl_h6_k1_z2':tot_nl_k1_z2_ll[5],
-                'tot_nl_h6_k2_z2':tot_nl_k2_z2_ll[5],
-                'tot_nl_h6_k3_z2':tot_nl_k3_z2_ll[5],
-                'tot_nl_h6_k1_z3':tot_nl_k1_z3_ll[5],
-                'tot_nl_h6_k2_z3':tot_nl_k2_z3_ll[5],
-                'tot_nl_h6_k3_z3':tot_nl_k3_z3_ll[5],
-                'tot_nl_h6_k1_z4':tot_nl_k1_z4_ll[5],
-                'tot_nl_h6_k2_z4':tot_nl_k2_z4_ll[5],
-                'tot_nl_h6_k3_z4':tot_nl_k3_z4_ll[5],
-                'tot_nl_h6_k1_z5':tot_nl_k1_z5_ll[5],
-                'tot_nl_h6_k2_z5':tot_nl_k2_z5_ll[5],
-                'tot_nl_h6_k3_z5':tot_nl_k3_z5_ll[5],
-                'tot_nl_h6_k1_z6':tot_nl_k1_z6_ll[5],
-                'tot_nl_h6_k2_z6':tot_nl_k2_z6_ll[5],
-                'tot_nl_h6_k3_z6':tot_nl_k3_z6_ll[5]}
-
-    
-    #data_lin_pre = {'tot_tot_lin_pre':tot_tot_lin_pre,
-    data_lin_pre = {'tot_lin_pre_h1_k1_z1':tot_lin_pre_k1_z1_ll[0],
-                'tot_lin_pre_h1_k2_z1':tot_lin_pre_k2_z1_ll[0],
-                'tot_lin_pre_h1_k3_z1':tot_lin_pre_k3_z1_ll[0],
-                'tot_lin_pre_h1_k1_z2':tot_lin_pre_k1_z2_ll[0],
-                'tot_lin_pre_h1_k2_z2':tot_lin_pre_k2_z2_ll[0],
-                'tot_lin_pre_h1_k3_z2':tot_lin_pre_k3_z2_ll[0],
-                'tot_lin_pre_h1_k1_z3':tot_lin_pre_k1_z3_ll[0],
-                'tot_lin_pre_h1_k2_z3':tot_lin_pre_k2_z3_ll[0],
-                'tot_lin_pre_h1_k3_z3':tot_lin_pre_k3_z3_ll[0],
-                'tot_lin_pre_h1_k1_z4':tot_lin_pre_k1_z4_ll[0],
-                'tot_lin_pre_h1_k2_z4':tot_lin_pre_k2_z4_ll[0],
-                'tot_lin_pre_h1_k3_z4':tot_lin_pre_k3_z4_ll[0],
-                'tot_lin_pre_h1_k1_z5':tot_lin_pre_k1_z5_ll[0],
-                'tot_lin_pre_h1_k2_z5':tot_lin_pre_k2_z5_ll[0],
-                'tot_lin_pre_h1_k3_z5':tot_lin_pre_k3_z5_ll[0],
-                'tot_lin_pre_h1_k1_z6':tot_lin_pre_k1_z6_ll[0],
-                'tot_lin_pre_h1_k2_z6':tot_lin_pre_k2_z6_ll[0],
-                'tot_lin_pre_h1_k3_z6':tot_lin_pre_k3_z6_ll[0],
-                'tot_lin_pre_h2_k1_z1':tot_lin_pre_k1_z1_ll[1],
-                'tot_lin_pre_h2_k2_z1':tot_lin_pre_k2_z1_ll[1],
-                'tot_lin_pre_h2_k3_z1':tot_lin_pre_k3_z1_ll[1],
-                'tot_lin_pre_h2_k1_z2':tot_lin_pre_k1_z2_ll[1],
-                'tot_lin_pre_h2_k2_z2':tot_lin_pre_k2_z2_ll[1],
-                'tot_lin_pre_h2_k3_z2':tot_lin_pre_k3_z2_ll[1],
-                'tot_lin_pre_h2_k1_z3':tot_lin_pre_k1_z3_ll[1],
-                'tot_lin_pre_h2_k2_z3':tot_lin_pre_k2_z3_ll[1],
-                'tot_lin_pre_h2_k3_z3':tot_lin_pre_k3_z3_ll[1],
-                'tot_lin_pre_h2_k1_z4':tot_lin_pre_k1_z4_ll[1],
-                'tot_lin_pre_h2_k2_z4':tot_lin_pre_k2_z4_ll[1],
-                'tot_lin_pre_h2_k3_z4':tot_lin_pre_k3_z4_ll[1],
-                'tot_lin_pre_h2_k1_z5':tot_lin_pre_k1_z5_ll[1],
-                'tot_lin_pre_h2_k2_z5':tot_lin_pre_k2_z5_ll[1],
-                'tot_lin_pre_h2_k3_z5':tot_lin_pre_k3_z5_ll[1],
-                'tot_lin_pre_h2_k1_z6':tot_lin_pre_k1_z6_ll[1],
-                'tot_lin_pre_h2_k2_z6':tot_lin_pre_k2_z6_ll[1],
-                'tot_lin_pre_h2_k3_z6':tot_lin_pre_k3_z6_ll[1],
-                'tot_lin_pre_h3_k1_z1':tot_lin_pre_k1_z1_ll[2],
-                'tot_lin_pre_h3_k2_z1':tot_lin_pre_k2_z1_ll[2],
-                'tot_lin_pre_h3_k3_z1':tot_lin_pre_k3_z1_ll[2],
-                'tot_lin_pre_h3_k1_z2':tot_lin_pre_k1_z2_ll[2],
-                'tot_lin_pre_h3_k2_z2':tot_lin_pre_k2_z2_ll[2],
-                'tot_lin_pre_h3_k3_z2':tot_lin_pre_k3_z2_ll[2],
-                'tot_lin_pre_h3_k1_z3':tot_lin_pre_k1_z3_ll[2],
-                'tot_lin_pre_h3_k2_z3':tot_lin_pre_k2_z3_ll[2],
-                'tot_lin_pre_h3_k3_z3':tot_lin_pre_k3_z3_ll[2],
-                'tot_lin_pre_h3_k1_z4':tot_lin_pre_k1_z4_ll[2],
-                'tot_lin_pre_h3_k2_z4':tot_lin_pre_k2_z4_ll[2],
-                'tot_lin_pre_h3_k3_z4':tot_lin_pre_k3_z4_ll[2],
-                'tot_lin_pre_h3_k1_z5':tot_lin_pre_k1_z5_ll[2],
-                'tot_lin_pre_h3_k2_z5':tot_lin_pre_k2_z5_ll[2],
-                'tot_lin_pre_h3_k3_z5':tot_lin_pre_k3_z5_ll[2],
-                'tot_lin_pre_h3_k1_z6':tot_lin_pre_k1_z6_ll[2],
-                'tot_lin_pre_h3_k2_z6':tot_lin_pre_k2_z6_ll[2],
-                'tot_lin_pre_h3_k3_z6':tot_lin_pre_k3_z6_ll[2],
-                'tot_lin_pre_h4_k1_z1':tot_lin_pre_k1_z1_ll[3],
-                'tot_lin_pre_h4_k2_z1':tot_lin_pre_k2_z1_ll[3],
-                'tot_lin_pre_h4_k3_z1':tot_lin_pre_k3_z1_ll[3],
-                'tot_lin_pre_h4_k1_z2':tot_lin_pre_k1_z2_ll[3],
-                'tot_lin_pre_h4_k2_z2':tot_lin_pre_k2_z2_ll[3],
-                'tot_lin_pre_h4_k3_z2':tot_lin_pre_k3_z2_ll[3],
-                'tot_lin_pre_h4_k1_z3':tot_lin_pre_k1_z3_ll[3],
-                'tot_lin_pre_h4_k2_z3':tot_lin_pre_k2_z3_ll[3],
-                'tot_lin_pre_h4_k3_z3':tot_lin_pre_k3_z3_ll[3],
-                'tot_lin_pre_h4_k1_z4':tot_lin_pre_k1_z4_ll[3],
-                'tot_lin_pre_h4_k2_z4':tot_lin_pre_k2_z4_ll[3],
-                'tot_lin_pre_h4_k3_z4':tot_lin_pre_k3_z4_ll[3],
-                'tot_lin_pre_h4_k1_z5':tot_lin_pre_k1_z5_ll[3],
-                'tot_lin_pre_h4_k2_z5':tot_lin_pre_k2_z5_ll[3],
-                'tot_lin_pre_h4_k3_z5':tot_lin_pre_k3_z5_ll[3],
-                'tot_lin_pre_h4_k1_z6':tot_lin_pre_k1_z6_ll[3],
-                'tot_lin_pre_h4_k2_z6':tot_lin_pre_k2_z6_ll[3],
-                'tot_lin_pre_h4_k3_z6':tot_lin_pre_k3_z6_ll[3],
-                'tot_lin_pre_h5_k1_z1':tot_lin_pre_k1_z1_ll[4],
-                'tot_lin_pre_h5_k2_z1':tot_lin_pre_k2_z1_ll[4],
-                'tot_lin_pre_h5_k3_z1':tot_lin_pre_k3_z1_ll[4],
-                'tot_lin_pre_h5_k1_z2':tot_lin_pre_k1_z2_ll[4],
-                'tot_lin_pre_h5_k2_z2':tot_lin_pre_k2_z2_ll[4],
-                'tot_lin_pre_h5_k3_z2':tot_lin_pre_k3_z2_ll[4],
-                'tot_lin_pre_h5_k1_z3':tot_lin_pre_k1_z3_ll[4],
-                'tot_lin_pre_h5_k2_z3':tot_lin_pre_k2_z3_ll[4],
-                'tot_lin_pre_h5_k3_z3':tot_lin_pre_k3_z3_ll[4],
-                'tot_lin_pre_h5_k1_z4':tot_lin_pre_k1_z4_ll[4],
-                'tot_lin_pre_h5_k2_z4':tot_lin_pre_k2_z4_ll[4],
-                'tot_lin_pre_h5_k3_z4':tot_lin_pre_k3_z4_ll[4],
-                'tot_lin_pre_h5_k1_z5':tot_lin_pre_k1_z5_ll[4],
-                'tot_lin_pre_h5_k2_z5':tot_lin_pre_k2_z5_ll[4],
-                'tot_lin_pre_h5_k3_z5':tot_lin_pre_k3_z5_ll[4],
-                'tot_lin_pre_h5_k1_z6':tot_lin_pre_k1_z6_ll[4],
-                'tot_lin_pre_h5_k2_z6':tot_lin_pre_k2_z6_ll[4],
-                'tot_lin_pre_h5_k3_z6':tot_lin_pre_k3_z6_ll[4],
-                'tot_lin_pre_h6_k1_z1':tot_lin_pre_k1_z1_ll[5],
-                'tot_lin_pre_h6_k2_z1':tot_lin_pre_k2_z1_ll[5],
-                'tot_lin_pre_h6_k3_z1':tot_lin_pre_k3_z1_ll[5],
-                'tot_lin_pre_h6_k1_z2':tot_lin_pre_k1_z2_ll[5],
-                'tot_lin_pre_h6_k2_z2':tot_lin_pre_k2_z2_ll[5],
-                'tot_lin_pre_h6_k3_z2':tot_lin_pre_k3_z2_ll[5],
-                'tot_lin_pre_h6_k1_z3':tot_lin_pre_k1_z3_ll[5],
-                'tot_lin_pre_h6_k2_z3':tot_lin_pre_k2_z3_ll[5],
-                'tot_lin_pre_h6_k3_z3':tot_lin_pre_k3_z3_ll[5],
-                'tot_lin_pre_h6_k1_z4':tot_lin_pre_k1_z4_ll[5],
-                'tot_lin_pre_h6_k2_z4':tot_lin_pre_k2_z4_ll[5],
-                'tot_lin_pre_h6_k3_z4':tot_lin_pre_k3_z4_ll[5],
-                'tot_lin_pre_h6_k1_z5':tot_lin_pre_k1_z5_ll[5],
-                'tot_lin_pre_h6_k2_z5':tot_lin_pre_k2_z5_ll[5],
-                'tot_lin_pre_h6_k3_z5':tot_lin_pre_k3_z5_ll[5],
-                'tot_lin_pre_h6_k1_z6':tot_lin_pre_k1_z6_ll[5],
-                'tot_lin_pre_h6_k2_z6':tot_lin_pre_k2_z6_ll[5],
-                'tot_lin_pre_h6_k3_z6':tot_lin_pre_k3_z6_ll[5]}
-              
-    #data_nl_pre = {'tot_tot_nl_pre':tot_tot_nl_pre,
-    data_nl_pre = {'tot_nl_pre_h1_k1_z1':tot_nl_pre_k1_z1_ll[0],
-                'tot_nl_pre_h1_k2_z1':tot_nl_pre_k2_z1_ll[0],
-                'tot_nl_pre_h1_k3_z1':tot_nl_pre_k3_z1_ll[0],
-                'tot_nl_pre_h1_k1_z2':tot_nl_pre_k1_z2_ll[0],
-                'tot_nl_pre_h1_k2_z2':tot_nl_pre_k2_z2_ll[0],
-                'tot_nl_pre_h1_k3_z2':tot_nl_pre_k3_z2_ll[0],
-                'tot_nl_pre_h1_k1_z3':tot_nl_pre_k1_z3_ll[0],
-                'tot_nl_pre_h1_k2_z3':tot_nl_pre_k2_z3_ll[0],
-                'tot_nl_pre_h1_k3_z3':tot_nl_pre_k3_z3_ll[0],
-                'tot_nl_pre_h1_k1_z4':tot_nl_pre_k1_z4_ll[0],
-                'tot_nl_pre_h1_k2_z4':tot_nl_pre_k2_z4_ll[0],
-                'tot_nl_pre_h1_k3_z4':tot_nl_pre_k3_z4_ll[0],
-                'tot_nl_pre_h1_k1_z5':tot_nl_pre_k1_z5_ll[0],
-                'tot_nl_pre_h1_k2_z5':tot_nl_pre_k2_z5_ll[0],
-                'tot_nl_pre_h1_k3_z5':tot_nl_pre_k3_z5_ll[0],
-                'tot_nl_pre_h1_k1_z6':tot_nl_pre_k1_z6_ll[0],
-                'tot_nl_pre_h1_k2_z6':tot_nl_pre_k2_z6_ll[0],
-                'tot_nl_pre_h1_k3_z6':tot_nl_pre_k3_z6_ll[0],
-                'tot_nl_pre_h2_k1_z1':tot_nl_pre_k1_z1_ll[1],
-                'tot_nl_pre_h2_k2_z1':tot_nl_pre_k2_z1_ll[1],
-                'tot_nl_pre_h2_k3_z1':tot_nl_pre_k3_z1_ll[1],
-                'tot_nl_pre_h2_k1_z2':tot_nl_pre_k1_z2_ll[1],
-                'tot_nl_pre_h2_k2_z2':tot_nl_pre_k2_z2_ll[1],
-                'tot_nl_pre_h2_k3_z2':tot_nl_pre_k3_z2_ll[1],
-                'tot_nl_pre_h2_k1_z3':tot_nl_pre_k1_z3_ll[1],
-                'tot_nl_pre_h2_k2_z3':tot_nl_pre_k2_z3_ll[1],
-                'tot_nl_pre_h2_k3_z3':tot_nl_pre_k3_z3_ll[1],
-                'tot_nl_pre_h2_k1_z4':tot_nl_pre_k1_z4_ll[1],
-                'tot_nl_pre_h2_k2_z4':tot_nl_pre_k2_z4_ll[1],
-                'tot_nl_pre_h2_k3_z4':tot_nl_pre_k3_z4_ll[1],
-                'tot_nl_pre_h2_k1_z5':tot_nl_pre_k1_z5_ll[1],
-                'tot_nl_pre_h2_k2_z5':tot_nl_pre_k2_z5_ll[1],
-                'tot_nl_pre_h2_k3_z5':tot_nl_pre_k3_z5_ll[1],
-                'tot_nl_pre_h2_k1_z6':tot_nl_pre_k1_z6_ll[1],
-                'tot_nl_pre_h2_k2_z6':tot_nl_pre_k2_z6_ll[1],
-                'tot_nl_pre_h2_k3_z6':tot_nl_pre_k3_z6_ll[1],
-                'tot_nl_pre_h3_k1_z1':tot_nl_pre_k1_z1_ll[2],
-                'tot_nl_pre_h3_k2_z1':tot_nl_pre_k2_z1_ll[2],
-                'tot_nl_pre_h3_k3_z1':tot_nl_pre_k3_z1_ll[2],
-                'tot_nl_pre_h3_k1_z2':tot_nl_pre_k1_z2_ll[2],
-                'tot_nl_pre_h3_k2_z2':tot_nl_pre_k2_z2_ll[2],
-                'tot_nl_pre_h3_k3_z2':tot_nl_pre_k3_z2_ll[2],
-                'tot_nl_pre_h3_k1_z3':tot_nl_pre_k1_z3_ll[2],
-                'tot_nl_pre_h3_k2_z3':tot_nl_pre_k2_z3_ll[2],
-                'tot_nl_pre_h3_k3_z3':tot_nl_pre_k3_z3_ll[2],
-                'tot_nl_pre_h3_k1_z4':tot_nl_pre_k1_z4_ll[2],
-                'tot_nl_pre_h3_k2_z4':tot_nl_pre_k2_z4_ll[2],
-                'tot_nl_pre_h3_k3_z4':tot_nl_pre_k3_z4_ll[2],
-                'tot_nl_pre_h3_k1_z5':tot_nl_pre_k1_z5_ll[2],
-                'tot_nl_pre_h3_k2_z5':tot_nl_pre_k2_z5_ll[2],
-                'tot_nl_pre_h3_k3_z5':tot_nl_pre_k3_z5_ll[2],
-                'tot_nl_pre_h3_k1_z6':tot_nl_pre_k1_z6_ll[2],
-                'tot_nl_pre_h3_k2_z6':tot_nl_pre_k2_z6_ll[2],
-                'tot_nl_pre_h3_k3_z6':tot_nl_pre_k3_z6_ll[2],
-                'tot_nl_pre_h4_k1_z1':tot_nl_pre_k1_z1_ll[3],
-                'tot_nl_pre_h4_k2_z1':tot_nl_pre_k2_z1_ll[3],
-                'tot_nl_pre_h4_k3_z1':tot_nl_pre_k3_z1_ll[3],
-                'tot_nl_pre_h4_k1_z2':tot_nl_pre_k1_z2_ll[3],
-                'tot_nl_pre_h4_k2_z2':tot_nl_pre_k2_z2_ll[3],
-                'tot_nl_pre_h4_k3_z2':tot_nl_pre_k3_z2_ll[3],
-                'tot_nl_pre_h4_k1_z3':tot_nl_pre_k1_z3_ll[3],
-                'tot_nl_pre_h4_k2_z3':tot_nl_pre_k2_z3_ll[3],
-                'tot_nl_pre_h4_k3_z3':tot_nl_pre_k3_z3_ll[3],
-                'tot_nl_pre_h4_k1_z4':tot_nl_pre_k1_z4_ll[3],
-                'tot_nl_pre_h4_k2_z4':tot_nl_pre_k2_z4_ll[3],
-                'tot_nl_pre_h4_k3_z4':tot_nl_pre_k3_z4_ll[3],
-                'tot_nl_pre_h4_k1_z5':tot_nl_pre_k1_z5_ll[3],
-                'tot_nl_pre_h4_k2_z5':tot_nl_pre_k2_z5_ll[3],
-                'tot_nl_pre_h4_k3_z5':tot_nl_pre_k3_z5_ll[3],
-                'tot_nl_pre_h4_k1_z6':tot_nl_pre_k1_z6_ll[3],
-                'tot_nl_pre_h4_k2_z6':tot_nl_pre_k2_z6_ll[3],
-                'tot_nl_pre_h4_k3_z6':tot_nl_pre_k3_z6_ll[3],
-                'tot_nl_pre_h5_k1_z1':tot_nl_pre_k1_z1_ll[4],
-                'tot_nl_pre_h5_k2_z1':tot_nl_pre_k2_z1_ll[4],
-                'tot_nl_pre_h5_k3_z1':tot_nl_pre_k3_z1_ll[4],
-                'tot_nl_pre_h5_k1_z2':tot_nl_pre_k1_z2_ll[4],
-                'tot_nl_pre_h5_k2_z2':tot_nl_pre_k2_z2_ll[4],
-                'tot_nl_pre_h5_k3_z2':tot_nl_pre_k3_z2_ll[4],
-                'tot_nl_pre_h5_k1_z3':tot_nl_pre_k1_z3_ll[4],
-                'tot_nl_pre_h5_k2_z3':tot_nl_pre_k2_z3_ll[4],
-                'tot_nl_pre_h5_k3_z3':tot_nl_pre_k3_z3_ll[4],
-                'tot_nl_pre_h5_k1_z4':tot_nl_pre_k1_z4_ll[4],
-                'tot_nl_pre_h5_k2_z4':tot_nl_pre_k2_z4_ll[4],
-                'tot_nl_pre_h5_k3_z4':tot_nl_pre_k3_z4_ll[4],
-                'tot_nl_pre_h5_k1_z5':tot_nl_pre_k1_z5_ll[4],
-                'tot_nl_pre_h5_k2_z5':tot_nl_pre_k2_z5_ll[4],
-                'tot_nl_pre_h5_k3_z5':tot_nl_pre_k3_z5_ll[4],
-                'tot_nl_pre_h5_k1_z6':tot_nl_pre_k1_z6_ll[4],
-                'tot_nl_pre_h5_k2_z6':tot_nl_pre_k2_z6_ll[4],
-                'tot_nl_pre_h5_k3_z6':tot_nl_pre_k3_z6_ll[4],
-                'tot_nl_pre_h6_k1_z1':tot_nl_pre_k1_z1_ll[5],
-                'tot_nl_pre_h6_k2_z1':tot_nl_pre_k2_z1_ll[5],
-                'tot_nl_pre_h6_k3_z1':tot_nl_pre_k3_z1_ll[5],
-                'tot_nl_pre_h6_k1_z2':tot_nl_pre_k1_z2_ll[5],
-                'tot_nl_pre_h6_k2_z2':tot_nl_pre_k2_z2_ll[5],
-                'tot_nl_pre_h6_k3_z2':tot_nl_pre_k3_z2_ll[5],
-                'tot_nl_pre_h6_k1_z3':tot_nl_pre_k1_z3_ll[5],
-                'tot_nl_pre_h6_k2_z3':tot_nl_pre_k2_z3_ll[5],
-                'tot_nl_pre_h6_k3_z3':tot_nl_pre_k3_z3_ll[5],
-                'tot_nl_pre_h6_k1_z4':tot_nl_pre_k1_z4_ll[5],
-                'tot_nl_pre_h6_k2_z4':tot_nl_pre_k2_z4_ll[5],
-                'tot_nl_pre_h6_k3_z4':tot_nl_pre_k3_z4_ll[5],
-                'tot_nl_pre_h6_k1_z5':tot_nl_pre_k1_z5_ll[5],
-                'tot_nl_pre_h6_k2_z5':tot_nl_pre_k2_z5_ll[5],
-                'tot_nl_pre_h6_k3_z5':tot_nl_pre_k3_z5_ll[5],
-                'tot_nl_pre_h6_k1_z6':tot_nl_pre_k1_z6_ll[5],
-                'tot_nl_pre_h6_k2_z6':tot_nl_pre_k2_z6_ll[5],
-                'tot_nl_pre_h6_k3_z6':tot_nl_pre_k3_z6_ll[5]}
+    # Package data dictionaries into Bokeh ColumnDataSource objects
     source_lin = ColumnDataSource(data=data_lin)
     source_nl = ColumnDataSource(data=data_nl)
     source_lin_pre = ColumnDataSource(data=data_lin_pre)
     source_nl_pre = ColumnDataSource(data=data_nl_pre)
-
+    
+    # Build overall summary statistic for each sample point
+    # (use only lin, and the standard threshold value of 1e-4)
+    tot_tot_lin = np.sum(stats_lin[:,1], axis=(1,2))
+    
     #Uses this dictionary, since if using x,y for fig.rect
     #That will lead to x, and y values changing all the time
-    #So calling the dictionary value is better and won't fuck up your plots
-    source_data = ColumnDataSource(data={'tot_tot_data':tot_tot_lin[100:200], 'h_arr':h_arr, 
-                               'Omega_b_arr':Omega_b_arr, 'Omega_cdm_arr':Omega_cdm_arr,
-                               'A_s_arr':A_s_arr, 'n_s_arr':n_s_arr, 'trial_arr':trial_arr})
+    #So calling the dictionary value is better and won't mess up your plots
+    
+    src_data = {
+        #'tot_tot_data':     tot_tot_lin[100:200], # FIXME: What does this contain?
+        'tot_tot_data':     tot_tot_lin,
+        'h_arr':            p['h'], 
+        'Omega_b_arr':      p['Omega_b'], 
+        'Omega_cdm_arr':    p['Omega_cdm'],
+        'A_s_arr':          p['A_s'], 
+        'n_s_arr':          p['n_s'], 
+        'trial_arr':        p['id']
+    }
+    
+    source_data = ColumnDataSource(data=src_data)
     #Bokeh, so I have to individually plot each one first
-
-    #initialize the color values, this is Gn To Red
-    #colors = ["#75968f", "#a5bab7", "#c9d9d3", "#e2e2e2", "#dfccce", "#ddb7b1", "#cc7878", "#933b41", "#550b1d"]
-    #colors = ['#fff5ee', '#ffe4e1', '#ecc3bf', '#ffc1c1', '#ffa07a', '#ff7f50', '#ff5333', '#ff2400', '#cc1100']
 
     #This one goes from some really light yellow thing (fff5ee) to Red
     colors = ['#fff5ee', '#ffe4e1', '#ffc1c1', '#eeb4b4', '#f08080', '#ee6363', '#d44942', '#cd0000', '#ff0000']
     #Mapper corresponding to the tot_tot_data
     mapper = LinearColorMapper(palette=colors, low=0, high=1000)
 
-    #Create hover tool, I have to declare multiple instances of this
-    hover1 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-
+    # Create multiple instances of the hover tool
+    hover = []
+    for i in range(10):
+        _hover = HoverTool(
+                    tooltips=[
+                   ('index', '$index'),
+                   ('h', '@h_arr'),
+                   ('Omega_b', '@Omega_b_arr'),
+                   ('Omega_c', '@Omega_cdm_arr'),
+                   ('A_s', '@A_s_arr'),
+                   ('n_s', '@n_s_arr'),
+                   ('Delta', '@tot_tot_data')
+                   ])
+        hover.append(_hover)
+    
+    """
     hover2 = HoverTool(tooltips=[
     ('index', '$index'),
     ('(x,y,)', '($x, $y)'),
@@ -1434,58 +170,60 @@ def home():
     ('index', '$index'),
     ('(x,y,)', '($x, $y)'),
     ('Failure', '@tot_tot_data')])
+    """
 
     #What tools do I want
     TOOLS = 'hover, pan, wheel_zoom, box_zoom, save, resize, reset'
-    #Makes the plot
-    s1 = figure(plot_width=300, plot_height=300,tools=[hover1, TapTool()])
+    
+    # Generate the corner plot
+    s1 = figure(plot_width=300, plot_height=300,tools=[hover[0], TapTool()])
 
     s1.grid.grid_line_color = None
     #Plots the rectangles
     s1_rect = s1.rect('h_arr', 'Omega_b_arr',width=0.025, height=0.0017, alpha=0.8, source=source_data,fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s1.yaxis.axis_label = u'\u03A9_b'
     
-    s2 = figure(plot_width=300, plot_height=300, tools=[hover2, TapTool()])
+    s2 = figure(plot_width=300, plot_height=300, tools=[hover[1], TapTool()])
     s2.grid.grid_line_color=None
     s2_rect = s2.rect('h_arr', 'Omega_cdm_arr', width=0.025, height=0.017, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s2.yaxis.axis_label = u'\u03A9_cdm' 
 
-    s3 = figure(plot_width=300, plot_height=300, tools=[hover3, TapTool()])
+    s3 = figure(plot_width=300, plot_height=300, tools=[hover[2], TapTool()])
     s3.grid.grid_line_color = None
     #Plots the rectangles
     s3_rect = s3.rect('Omega_b_arr', 'Omega_cdm_arr',width=0.0017, height=0.017, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     
-    s4 = figure(plot_width=300, plot_height=300, tools=[hover4, TapTool()])
+    s4 = figure(plot_width=300, plot_height=300, tools=[hover[3], TapTool()])
     s4.grid.grid_line_color = None
     #Plots the rectangles
     s4_rect = s4.rect('h_arr', 'A_s_arr',width=0.025, height=0.045e-9, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s4.yaxis.axis_label = 'A_s' 
 
-    s5 = figure(plot_width=300, plot_height=300, tools=[hover5, TapTool()])
+    s5 = figure(plot_width=300, plot_height=300, tools=[hover[4], TapTool()])
     s5.grid.grid_line_color = None
     s5_rect = s5.rect('Omega_b_arr', 'A_s_arr',width=0.0017, height=0.045e-9, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
 
-    s6 = figure(plot_width=300, plot_height=300, tools=[hover6, TapTool()])
+    s6 = figure(plot_width=300, plot_height=300, tools=[hover[5], TapTool()])
     s6.grid.grid_line_color = None
     s6_rect = s6.rect('Omega_cdm_arr', 'A_s_arr',width=0.017, height=0.045e-9, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
 
-    s7 = figure(plot_width=300, plot_height=300, tools=[hover7, TapTool()])
+    s7 = figure(plot_width=300, plot_height=300, tools=[hover[6], TapTool()])
     s7.grid.grid_line_color = None
     s7_rect = s7.rect('h_arr', 'n_s_arr',width=0.025, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s7.yaxis.axis_label = 'n_s'
     s7.xaxis.axis_label = 'h'
    
-    s8 = figure(plot_width=300, plot_height=300, tools=[hover8,TapTool()])
+    s8 = figure(plot_width=300, plot_height=300, tools=[hover[7],TapTool()])
     s8.grid.grid_line_color = None
     s8_rect = s8.rect('Omega_b_arr', 'n_s_arr', width=0.0017, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s8.xaxis.axis_label = u'\u03A9_b'
 
-    s9 = figure(plot_width=300, plot_height=300, tools=[hover9, TapTool()])
+    s9 = figure(plot_width=300, plot_height=300, tools=[hover[8], TapTool()])
     s9.grid.grid_line_color = None
     s9_rect = s9.rect('Omega_cdm_arr', 'n_s_arr', width=0.017, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s9.xaxis.axis_label = u'\u03A9_cdm'
 
-    s10 = figure(plot_width=300, plot_height=300,tools=[hover10, TapTool()])
+    s10 = figure(plot_width=300, plot_height=300,tools=[hover[9], TapTool()])
     s10.grid.grid_line_color = None
     s10_rect = s10.rect('A_s_arr', 'n_s_arr', width=0.045e-9, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s10.xaxis.axis_label = 'A_s'
@@ -1997,12 +735,12 @@ def lin():
 
 
 
-	#Generate our z values for plotting
+	# Generate our z values for plotting
     z_actual = range(len(z_vals))
     z_arr = np.float_(np.asarray(z_actual))
     z_arr *= 0.5
     z = []
-    z_ll = []	#Create a heat map, but makes it red, right now we just mark threshold on the heat map
+    z_ll = []	# Create a heat map, but makes it red, right now we just mark threshold on the heat map
     for j in range(len(z_actual)):
         z_full = np.full(len(tot_lin_ll[0]), z_arr[j])
         z = np.append(z,z_full)
@@ -2017,32 +755,15 @@ def lin():
 
     k_bin = [ultra_scale_bin_1, ultra_scale_bin_2, lin_scale_bin, quasi_scale_bin]
     k_list = k_bin * len(z_vals) 
-
-
-	#Gonna try to plot it the pandas way
-	#WORKS!!!! AND it fills the whole space. FUCKING LIT
     k_words = ['Ultra-large', 'Linear', 'Quasi Lin']
-	#Use pandas to generate a data frame
-    #df = pd.DataFrame(sum_lin_ll, index=z_arr, columns=k_words)
 
 	#Values greater than threshold will be red, values at 0 will be green
 	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-    #print(sum_lin_z_ll)
-
-    #print(sum_lin_z)
-    #df = pd.DataFrame(tot_lin_ll, index=z_arr, columns=k_words)
     data_lin = {'tot_lin': tot_lin, 'z':z, 'k':k_list}
     source = ColumnDataSource(data=data_lin)
 
 	#Values greater than threshold will be red, values at 0 will be green
 	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-
 	#Trying to brute force colors for me
     colors = ['#fff5ee', '#ffe4e1', '#ffc1c1', '#eeb4b4', '#f08080', '#ee6363', '#d44942', '#cd0000', '#ff0000']
     mapper = LinearColorMapper(palette = colors, low = 0, high = 100)
