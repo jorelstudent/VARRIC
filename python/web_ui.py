@@ -23,14 +23,12 @@ from bokeh.models import Rect
 import numpy as np
 #import pdb
 from random import random
-from precompute_ccl import ccl_summary_stats, build_data_dict
+from load_data import ccl_summary_stats, build_data_dict
 
 app = Flask(__name__)
-#creates hover tool
 indices = range(100)
 
 
-#LETS IMPLEMENT A CLICK
 @app.route('/')
 def home():
     """
@@ -111,75 +109,23 @@ def home():
     mapper = LinearColorMapper(palette=colors, low=0, high=1000)
 
     # Create multiple instances of the hover tool
-    hover = []
-    for i in range(10):
-        _hover = HoverTool(
-                    tooltips=[
+    hover = [ HoverTool(tooltips=[
                    ('index', '$index'),
                    ('h', '@h_arr'),
-                   ('Omega_b', '@Omega_b_arr'),
-                   ('Omega_c', '@Omega_cdm_arr'),
+                   (u'\u03A9_b', '@Omega_b_arr'),
+                   (u'\u03A9_c', '@Omega_cdm_arr'),
                    ('A_s', '@A_s_arr'),
                    ('n_s', '@n_s_arr'),
-                   ('Delta', '@tot_tot_data')
+                   (u'\u0394', '@tot_tot_data')
                    ])
-        hover.append(_hover)
-    
-    """
-    hover2 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover3 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover4 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover5 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover6 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover7 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover8 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover9 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    
-    hover10 = HoverTool(tooltips=[
-    ('index', '$index'),
-    ('(x,y,)', '($x, $y)'),
-    ('Failure', '@tot_tot_data')])
-    """
+             for i in range(10) ]
 
-    #What tools do I want
+    # What tools do I want
     TOOLS = 'hover, pan, wheel_zoom, box_zoom, save, resize, reset'
     
     # Generate the corner plot
     s1 = figure(plot_width=300, plot_height=300,tools=[hover[0], TapTool()])
-
     s1.grid.grid_line_color = None
-    #Plots the rectangles
     s1_rect = s1.rect('h_arr', 'Omega_b_arr',width=0.025, height=0.0017, alpha=0.8, source=source_data,fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
     s1.yaxis.axis_label = u'\u03A9_b'
     
@@ -269,9 +215,10 @@ def home():
                     ticker=BasicTicker(desired_num_ticks=len(colors)),
                     label_standoff=6, border_line_color=None, location=(0,0))
 
-    s_color = figure()
+    s_color = figure(plot_width=200)
     #Since this basically creates another plot, we want to remove it
     #That's what the next couple of lines does
+    s_color.outline_line_color = 'white'
     s_color.grid.grid_line_color = None
     s_color.axis.axis_line_color = None
     s_color.add_layout(color_bar, 'left')
@@ -281,7 +228,11 @@ def home():
 
     #Creates the gridplot to be reminscient of a corner plot
     plot = gridplot([[s1, None, None, None], [s2, s3, None, None], [s4,s5,s6, None], [s7,s8,s9,s10]])
-
+    
+    
+    
+    
+    
     #Code to be utilized by the JavaScript in the interface
     code_sliders="""
 
