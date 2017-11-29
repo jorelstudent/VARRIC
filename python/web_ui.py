@@ -17,13 +17,13 @@ from bokeh.plotting import figure, curdoc, show
 # For gridplots
 from bokeh.io import gridplot, output_file, show
 # For heatmaps
-from bokeh.charts import HeatMap, bins, output_file, show
+#from bokeh.charts import HeatMap, bins, output_file, show
 from bokeh.models import Rect
 
 import numpy as np
-#import pdb
+import os
 from random import random
-from load_data import ccl_summary_stats, build_data_dict
+from load_data import load_hypercube, load_summary_stats, build_data_dict
 
 app = Flask(__name__)
 indices = range(100)
@@ -34,40 +34,54 @@ def home():
     """
     Homepage, which shows summary stats for a given dataset.
     """
-    # Load sample points in cosmological parameter space
-    datafile = "../data/par_stan1.csv"
-    sample_points = np.loadtxt(datafile, skiprows=1)
-    params = {
-        'id':           sample_points[:,0],
-        'h':            sample_points[:,1],
-        'Omega_b':      sample_points[:,2],
-        'Omega_cdm':    sample_points[:,3],
-        'A_s':          sample_points[:,4],
-        'n_s':          sample_points[:,5],
-    }
+    # Define data directories
+    PREFIX = "std"
+    class_data_root = "%s/data/class/%s" % (os.path.abspath(".."), PREFIX)
+    ccl_data_root = "%s/data/ccl/%s" % (os.path.abspath(".."), PREFIX)
+    
+    # Load sample points
+    p = load_hypercube("%s_params.dat" % class_data_root)
     
     # Define binning in (z, k) and threshold values
     thresholds = [5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2]
     scale_ranges = [(1e-4, 1e-2), (1e-2, 1e-1), (1e-1, 1e0)]
     z_vals = [1, 2, 3, 4, 5, 6]
     
+    "%s_nl_std"
+    
     # Calculate summary stats
-    stats_lin, p = ccl_summary_stats( params, 
-                        fname_template='../stats/lhs_mpk_err_lin_%05d_z%d.dat',
-                        thresholds=thresholds, scale_ranges=scale_ranges,
-                        z_vals=z_vals, cache_name='cache_lin' )
-    stats_nl, p = ccl_summary_stats( params, 
-                        fname_template='../stats/lhs_mpk_err_nl_%05d_z%d.dat', 
-                        thresholds=thresholds, scale_ranges=scale_ranges, 
-                        z_vals=z_vals, cache_name='cache_nl' )
-    stats_lin_pre, p = ccl_summary_stats( params, 
-                        fname_template='../stats/lhs_mpk_err_lin_pk_%05d_z%d.dat', 
-                        thresholds=thresholds, scale_ranges=scale_ranges, 
-                        z_vals=z_vals, cache_name='cache_lin_pre' )
-    stats_nl_pre, p = ccl_summary_stats( params, 
-                        fname_template='../stats/lhs_mpk_err_nl_pk_%05d_z%d.dat', 
-                        thresholds=thresholds, scale_ranges=scale_ranges, 
-                        z_vals=z_vals, cache_name='cache_nl_pre' )
+    stats_lin = load_summary_stats(p,
+                                   "%s_lin" % ccl_data_root, 
+                                   "%s_lin_std" % class_data_root,
+                                   thresholds=thresholds, z_vals=z_vals,
+                                   scale_ranges=scale_ranges, 
+                                   cache_name='cache_lin')
+    
+    # FIXME
+    stats_nl = stats_lin
+    stats_lin_pre = stats_lin
+    stats_nl_pre = stats_lin
+    
+    """
+    stats_nl = load_summary_stats(p, 
+                                  "%s_nl" % ccl_data_root, 
+                                  "%s_nl_std" % class_data_root,
+                                  thresholds=thresholds, z_vals=z_vals,
+                                  scale_ranges=scale_ranges, 
+                                  cache_name='cache_nl')
+    stats_lin_pre = load_summary_stats(p,
+                                       "%s_lin" % ccl_data_root, 
+                                       "%s_lin_pre" % class_data_root,
+                                       thresholds=thresholds, z_vals=z_vals,
+                                       scale_ranges=scale_ranges, 
+                                       cache_name='cache_lin_pre')
+    stats_nl_pre = load_summary_stats(p,
+                                      "%s_nl" % ccl_data_root, 
+                                      "%s_nl_pre" % class_data_root,
+                                      thresholds=thresholds, z_vals=z_vals,
+                                      scale_ranges=scale_ranges, 
+                                      cache_name='cache_nl_pre')
+    """
     
     # Build data dictionaries
     data_lin = build_data_dict(stats_lin, 'lin')
@@ -85,32 +99,27 @@ def home():
     # (use only lin, and the standard threshold value of 1e-4)
     tot_tot_lin = np.sum(stats_lin[:,1], axis=(1,2))
     
-    #Uses this dictionary, since if using x,y for fig.rect
-    #That will lead to x, and y values changing all the time
-    #So calling the dictionary value is better and won't mess up your plots
-    
+    # Create ColumnDataSource with the cosmo params and Delta summary statistic
     src_data = {
-        #'tot_tot_data':     tot_tot_lin[100:200], # FIXME: What does this contain?
         'tot_tot_data':     tot_tot_lin,
         'h_arr':            p['h'], 
         'Omega_b_arr':      p['Omega_b'], 
         'Omega_cdm_arr':    p['Omega_cdm'],
         'A_s_arr':          p['A_s'], 
         'n_s_arr':          p['n_s'], 
-        'trial_arr':        p['id']
+        'trial_arr':        ["%05d" % i for i in range(p['h'].size)]
     }
-    
     source_data = ColumnDataSource(data=src_data)
-    #Bokeh, so I have to individually plot each one first
 
-    #This one goes from some really light yellow thing (fff5ee) to Red
-    colors = ['#fff5ee', '#ffe4e1', '#ffc1c1', '#eeb4b4', '#f08080', '#ee6363', '#d44942', '#cd0000', '#ff0000']
-    #Mapper corresponding to the tot_tot_data
-    mapper = LinearColorMapper(palette=colors, low=0, high=1000)
+    # Map summary statistic to colors
+    colors = ['#fff5ee', '#ffe4e1', '#ffc1c1', '#eeb4b4', '#f08080', 
+              '#ee6363', '#d44942', '#cd0000', '#ff0000']
+    mapper = LinearColorMapper(palette=colors, low=0.1, high=1000., 
+                               low_color='#CCE4FF')
 
     # Create multiple instances of the hover tool
     hover = [ HoverTool(tooltips=[
-                   ('index', '$index'),
+                   #('index', '$index'),
                    ('h', '@h_arr'),
                    (u'\u03A9_b', '@Omega_b_arr'),
                    (u'\u03A9_c', '@Omega_cdm_arr'),
@@ -120,104 +129,115 @@ def home():
                    ])
              for i in range(10) ]
 
-    # What tools do I want
+    # Selection of tools to enable
     TOOLS = 'hover, pan, wheel_zoom, box_zoom, save, resize, reset'
+    WIDTH = 300
+    HEIGHT = 300
     
     # Generate the corner plot
-    s1 = figure(plot_width=300, plot_height=300,tools=[hover[0], TapTool()])
+    s1 = figure(plot_width=WIDTH, plot_height=HEIGHT,tools=[hover[0], TapTool()])
     s1.grid.grid_line_color = None
-    s1_rect = s1.rect('h_arr', 'Omega_b_arr',width=0.025, height=0.0017, alpha=0.8, source=source_data,fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s1_rect = s1.rect('h_arr', 'Omega_b_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
     s1.yaxis.axis_label = u'\u03A9_b'
     
-    s2 = figure(plot_width=300, plot_height=300, tools=[hover[1], TapTool()])
+    s2 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[1], TapTool()])
     s2.grid.grid_line_color=None
-    s2_rect = s2.rect('h_arr', 'Omega_cdm_arr', width=0.025, height=0.017, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s2_rect = s2.rect('h_arr', 'Omega_cdm_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
     s2.yaxis.axis_label = u'\u03A9_cdm' 
 
-    s3 = figure(plot_width=300, plot_height=300, tools=[hover[2], TapTool()])
+    s3 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[2], TapTool()])
     s3.grid.grid_line_color = None
-    #Plots the rectangles
-    s3_rect = s3.rect('Omega_b_arr', 'Omega_cdm_arr',width=0.0017, height=0.017, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s3_rect = s3.rect('Omega_b_arr', 'Omega_cdm_arr', width=10., height=10., 
+                      alpha=0.8, line_color=None, source=source_data, 
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
     
-    s4 = figure(plot_width=300, plot_height=300, tools=[hover[3], TapTool()])
+    s4 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[3], TapTool()])
     s4.grid.grid_line_color = None
-    #Plots the rectangles
-    s4_rect = s4.rect('h_arr', 'A_s_arr',width=0.025, height=0.045e-9, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s4_rect = s4.rect('h_arr', 'A_s_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
     s4.yaxis.axis_label = 'A_s' 
 
-    s5 = figure(plot_width=300, plot_height=300, tools=[hover[4], TapTool()])
+    s5 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[4], TapTool()])
     s5.grid.grid_line_color = None
-    s5_rect = s5.rect('Omega_b_arr', 'A_s_arr',width=0.0017, height=0.045e-9, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s5_rect = s5.rect('Omega_b_arr', 'A_s_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
 
-    s6 = figure(plot_width=300, plot_height=300, tools=[hover[5], TapTool()])
+    s6 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[5], TapTool()])
     s6.grid.grid_line_color = None
-    s6_rect = s6.rect('Omega_cdm_arr', 'A_s_arr',width=0.017, height=0.045e-9, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s6_rect = s6.rect('Omega_cdm_arr', 'A_s_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
 
-    s7 = figure(plot_width=300, plot_height=300, tools=[hover[6], TapTool()])
+    s7 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[6], TapTool()])
     s7.grid.grid_line_color = None
-    s7_rect = s7.rect('h_arr', 'n_s_arr',width=0.025, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s7_rect = s7.rect('h_arr', 'n_s_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
     s7.yaxis.axis_label = 'n_s'
     s7.xaxis.axis_label = 'h'
    
-    s8 = figure(plot_width=300, plot_height=300, tools=[hover[7],TapTool()])
+    s8 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[7],TapTool()])
     s8.grid.grid_line_color = None
-    s8_rect = s8.rect('Omega_b_arr', 'n_s_arr', width=0.0017, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s8_rect = s8.rect('Omega_b_arr', 'n_s_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
     s8.xaxis.axis_label = u'\u03A9_b'
 
-    s9 = figure(plot_width=300, plot_height=300, tools=[hover[8], TapTool()])
+    s9 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[8], TapTool()])
     s9.grid.grid_line_color = None
-    s9_rect = s9.rect('Omega_cdm_arr', 'n_s_arr', width=0.017, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s9_rect = s9.rect('Omega_cdm_arr', 'n_s_arr', width=10., height=10., 
+                      alpha=0.8, source=source_data, line_color=None,
+                      fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                      width_units='screen', height_units='screen')
     s9.xaxis.axis_label = u'\u03A9_cdm'
 
-    s10 = figure(plot_width=300, plot_height=300,tools=[hover[9], TapTool()])
+    s10 = figure(plot_width=WIDTH, plot_height=HEIGHT, tools=[hover[9], TapTool()])
     s10.grid.grid_line_color = None
-    s10_rect = s10.rect('A_s_arr', 'n_s_arr', width=0.045e-9, height=0.0034, alpha=0.8, source=source_data, fill_color={'field':'tot_tot_data', 'transform':mapper}, line_color=None)
+    s10_rect = s10.rect('A_s_arr', 'n_s_arr', width=10., height=10., 
+                        alpha=0.8, source=source_data, line_color=None,
+                        fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                        width_units='screen', height_units='screen')
     s10.xaxis.axis_label = 'A_s'
+    
+    # Make lists of rectangles and figures
+    rect_list = [ s1_rect, s2_rect, s3_rect, s4_rect, s5_rect, 
+                  s6_rect, s7_rect, s8_rect, s9_rect, s10_rect ]
+    fig_list = [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]
    
-    #Create glyphs for the highlighting portion, so that when it is tapped
-    #the colors don't change
-
-    selected = Rect(fill_color={'field':'tot_tot_data', 'transform':mapper}, fill_alpha=0.8, line_color=None)
-    nonselected = Rect(fill_color={'field':'tot_tot_data', 'transform':mapper}, fill_alpha=0.8, line_color=None)
-
-    s1_rect.selection_glyph = selected
-    s1_rect.nonselection_glyph = nonselected
-
-    s2_rect.selection_glyph = selected
-    s2_rect.nonselection_glyph = nonselected
-
-    s3_rect.selection_glyph = selected
-    s3_rect.nonselection_glyph = nonselected
-
-    s4_rect.selection_glyph = selected
-    s4_rect.nonselection_glyph = nonselected
-
-    s5_rect.selection_glyph = selected
-    s5_rect.nonselection_glyph = nonselected
+    # Create glyphs for the highlighting portion, so that when it is tapped
+    # the colors don't change
+    selected = Rect(fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                    fill_alpha=0.8, line_color=None)
+    nonselected = Rect(fill_color={'field':'tot_tot_data', 'transform':mapper}, 
+                       fill_alpha=0.8, line_color=None)
     
-    s6_rect.selection_glyph = selected
-    s6_rect.nonselection_glyph = nonselected
-
-    s7_rect.selection_glyph = selected
-    s7_rect.nonselection_glyph = nonselected
-
-    s8_rect.selection_glyph = selected
-    s8_rect.nonselection_glyph = nonselected
-
-    s9_rect.selection_glyph = selected
-    s9_rect.nonselection_glyph = nonselected
-
-    s10_rect.selection_glyph = selected
-    s10_rect.nonselection_glyph = nonselected
-    #Creates the color bar and adds it to the right side of the big plot
+    # Loop over rectangles, setting selected vs. nonselected glyph
+    for rect in rect_list:
+        rect.selection_glyph = selected
+        rect.nonselection_glyph = nonselected
     
-    color_bar = ColorBar(color_mapper=mapper, major_label_text_font_size='12pt',
-                    ticker=BasicTicker(desired_num_ticks=len(colors)),
-                    label_standoff=6, border_line_color=None, location=(0,0))
-
-    s_color = figure(plot_width=200)
-    #Since this basically creates another plot, we want to remove it
-    #That's what the next couple of lines does
+    # Create colorbar for value of Delta
+    color_bar = ColorBar( color_mapper=mapper, 
+                          major_label_text_font_size='12pt',
+                          ticker=BasicTicker(desired_num_ticks=len(colors)),
+                          label_standoff=10, border_line_color=None, 
+                          location=(0,0) )
+    
+    s_color = figure(plot_width=WIDTH, plot_height=290)
     s_color.outline_line_color = 'white'
     s_color.grid.grid_line_color = None
     s_color.axis.axis_line_color = None
@@ -225,22 +245,20 @@ def home():
     s_color.toolbar.logo = None
     s_color.toolbar_location = None
 
-
-    #Creates the gridplot to be reminscient of a corner plot
-    plot = gridplot([[s1, None, None, None], [s2, s3, None, None], [s4,s5,s6, None], [s7,s8,s9,s10]])
+    # Create gridplot in the shape of a corner plot
+    plot = gridplot([ [s1, None, None, s_color], 
+                      [s2, s3, None, None], 
+                      [s4,s5,s6, None], 
+                      [s7,s8,s9,s10] ])
     
-    
-    
-    
-    
-    #Code to be utilized by the JavaScript in the interface
+    # Code to be used by the JavaScript in the interface
     code_sliders="""
 
     // Get the value from our threshold slider
     var thres = thres_slider.value;
     console.log(thres);
 
-    //Get the range of our z_Slider
+    // Get the range of our z_Slider
     var z = z_slider.range;
     var start = z_slider.range[0];
     var end = z_slider.range[1];
@@ -248,10 +266,10 @@ def home():
     console.log(end);
 
     
-    //Get the mode in the dropdown
+    // Get the mode in the dropdown
     var mode_selected = dropdown.value;
 
-    //All of our data
+    // All of our data
     var tot_data = source_data.data;
     var tot_lin = js_lin.data;
     var tot_nl = js_nl.data;
@@ -260,7 +278,7 @@ def home():
     var sum = 0;
     console.log(mode_selected);
 
-    //Daa from the checkbox group
+    // Data from the checkbox group
     var k_check = k_checkbox.active;
     console.log(k_check);
     
@@ -344,41 +362,65 @@ def home():
     source_data.trigger('change');
 
     """
-
-    callback_sliders = CustomJS(args=dict(source_data=source_data, js_lin=source_lin, js_nl=source_nl, js_lin_pre=source_lin_pre, js_nl_pre=source_nl_pre), code=code_sliders)
+    # Attach callback function to ColumnDataSources
+    callback_settings = dict( source_data=source_data, 
+                              js_lin=source_lin, 
+                              js_nl=source_nl, 
+                              js_lin_pre=source_lin_pre, 
+                              js_nl_pre=source_nl_pre )
+    callback_sliders = CustomJS(args=callback_settings, code=code_sliders)
     
-    #Creates the selection menu for the select
-    selection_men = ['Linear', 'Non-Linear', 'Linear, Precision', 'Non-Linear, Precision']
-    dropdown = Select(title='Mode', value=selection_men[0], options=selection_men, callback=callback_sliders)
+    # Create selection menu for power spectrum type
+    sel_pstype = [ 'Linear', 'Non-Linear', 
+                   'Linear (high-precision)', 'Non-Linear (high-precision)' ]
+    pstypes = ['lin', 'nl', 'lin_pre', 'nl_pre']
+    dropdown = Select(title='Power spectrum type:', value=sel_pstype[0], 
+                      options=sel_pstype, callback=callback_sliders)
 
-    #Create the RangeSlider for the z values
-    z_slider = RangeSlider(start=0, end=2.5, range=(0,2.5), step=0.5, title='Range of z values', callback=callback_sliders)
+    # Create RangeSlider for redshift values
+    z_slider = RangeSlider(start=0, end=2.5, range=(0, 2.5), step=0.5, 
+                           title='Range of z values', callback=callback_sliders)
     
-    #Create the slider for the threshold
-    thres_slider = Slider(start=1, end=6, value=2, step=1, title='Threshold', callback=callback_sliders)
+    # Create slider for accuracy threshold
+    thres_slider = Slider(start=1, end=6, value=2, step=1, 
+                          title='Accuracy threshold', callback=callback_sliders)
 
-
-    #Create a checkbox group for the k ranges
-    k_checkbox = CheckboxGroup(labels=[u'Ultra-Large Scales, 10\u207B\u2074 <= k <= 10\u207B\u00B2', u'Linear Scales, 10\u207B\u00B2 <= k <= 10\u207B\u00B9', u'Quasi-Linear Scales, 10\u207B\u00B9 <= k <= 1'], active=[0,1,2], callback=callback_sliders)
+    # Create a checkbox group for the k ranges
+    k_lbls = [u'Ultra-Large Scales, 10\u207B\u2074 <= k <= 10\u207B\u00B2', 
+              u'Linear Scales, 10\u207B\u00B2 <= k <= 10\u207B\u00B9', 
+              u'Quasi-Linear Scales, 10\u207B\u00B9 <= k <= 1']
+    k_checkbox = CheckboxGroup(labels=k_lbls, active=[0,1,2], 
+                               callback=callback_sliders)
     
+    # Attach callback to widgets
     callback_sliders.args['z_slider'] = z_slider
     callback_sliders.args['dropdown'] = dropdown
     callback_sliders.args['thres_slider'] = thres_slider
     callback_sliders.args['k_checkbox'] = k_checkbox
     
-    #Make it open a new URL on tap
-    #Bokeh is again a bitch, so we gotta initiate multiple instances
-    taptool = s1.select(type=TapTool)
-    code_tap="""
-        //Get the value 'Tapped'
+    # Code to open new page on click
+    code_tap = \
+        """
+        // Get the value of the item that was tapped
         var index_selected=source.selected['1d'].indices[0];
         console.log(index_selected);
-        //Get the mode in the dropdown
+        
+        // Get the mode in the dropdown
         var mode_selected = dropdown.value;
         console.log(mode_selected);
-        //Initialize the starting URL
-        var url = 'http://127.0.0.1:5000/'
-
+        
+        // Initialize the starting URL
+        //var url = 'http://127.0.0.1:5000/'
+        var url = './'
+        """
+    for i in range(len(sel_pstype)):
+        code_tap += "if (mode_selected == \"%s\") {\n" % sel_pstype[i]
+        code_tap += "var url_mode = '?mode=%s'\n" % pstypes[i]
+        code_tap += "var url_index = '&index=' + String(index_selected)\n"
+        code_tap += "url_use = url + 'detail/' + url_mode + url_index\n"
+        code_tap += "window.open(url_use)\n}\n"
+    
+    """
         if (mode_selected == "Linear") {
         var url_mode = 'lin/'
         var url_index = '?index=' + String(index_selected)
@@ -407,11 +449,16 @@ def home():
         window.open(url_use)
         }
     """
-
-
-        
-    taptool.callback = (CustomJS(args=dict(dropdown=dropdown, source=source_data), code=code_tap))
     
+    taptool = []
+    for i, s in enumerate(fig_list):
+        taptool.append( s.select(type=TapTool) )
+        
+        # Attach taptool to callback
+        tt_args = dict(dropdown=dropdown, source=source_data)
+        taptool[i].callback = CustomJS(args=tt_args, code=code_tap)
+    
+    """
     taptool2 = s2.select(type=TapTool)
     taptool2.callback = (CustomJS(args=dict(dropdown=dropdown, source=source_data), code=code_tap))
 
@@ -438,18 +485,25 @@ def home():
 
     taptool10 = s10.select(type=TapTool)
     taptool10.callback = (CustomJS(args=dict(dropdown=dropdown, source=source_data), code=code_tap))
-
+    """
     
-    l = layout([[WidgetBox(thres_slider),],[WidgetBox(dropdown),],[WidgetBox(z_slider),], [WidgetBox(k_checkbox),], [plot,s_color]])
+    # Build page layout
+    l = layout([ [WidgetBox(thres_slider),],
+                 [WidgetBox(dropdown),],
+                 [WidgetBox(z_slider),], 
+                 [WidgetBox(k_checkbox),], 
+                 [plot,] ])
     script, div_dict = components(l)
-    print div_dict
-    #print div_dict
-    return render_template('homepage.html', script=script, div=div_dict, bokeh_version=BOKEH_VERSION)
-                           #feature_names=feature_names, current_feature_name=current_feature_name)
+    
+    # Render template
+    return render_template('homepage.html', 
+                           script=script, 
+                           div=div_dict, 
+                           bokeh_version=BOKEH_VERSION)
 
 
 #Index page 
-@app.route('/lin/')
+@app.route('/detail/')
 def lin():
     index = request.args.get('index')
     if index == None:
@@ -549,10 +603,7 @@ def lin():
 
     cluster_reg_min = 1e-2 #Min for the cluster regime
     cluster_reg_max = 0.2 # Max for the cluster regime
-
-    #load the data
-
-
+    
     #Create arrays that will be filled in the loop over trials
     #Total of the wights
     tot_tot_lin = []
@@ -562,13 +613,6 @@ def lin():
     #1 = Ultra Large Scales
     #2 = Linear scales
     #3 = Nonlinear scales
-
-
-    ###########################
-    #                         #
-    #GETTING THE SUMMARY STATS#
-    #                         #
-    ###########################
     #for i in range(len(trial_arr)):
     print("\n\ni is ", i)
     print("\n\nin summary statistic plot")
@@ -737,13 +781,11 @@ def lin():
                     ticker=BasicTicker(desired_num_ticks=len(colors)),
                     label_standoff=6, border_line_color=None, location=(0,0))
 
-
     p_sum.add_layout(color_bar, 'right')
     p_sum.xaxis.axis_label = "log k"
     p_sum.yaxis.axis_label = "z"
 
-    #Make a textarea, so that the html will print out a textbox of the parameter values
-
+    # Make a textarea, so that the html will print out a textbox of the parameter values
     id_val_string = 'Index = %s <br/>' %index
     h_string = 'h = %s <br/>' %h
     Omega_b_string = '&Omega;<sub>b</sub> = %s <br/>' %Omega_b
@@ -751,14 +793,13 @@ def lin():
     A_s_string = 'A<sub>s</sub> = %s <br/>' %A_s
     n_s_string = 'n<sub>s</sub> = %s <br/>' %n_s
 
-    #Textbox html
+    # Textbox html
     textbox = '<div class=\'boxed\'> Parameter values: <br/>' + id_val_string + h_string + Omega_b_string + Omega_cdm_string + A_s_string + n_s_string + '</div>'
 
     
 
-    #Create a paragraph to tell the users what to do
-    readme = Paragraph(text = """If you want to recreate these plots, look
-    no further! Below is the .ini file for CLASS and the code used to run CCL
+    # Create a paragraph to tell the users what to do
+    readme = Paragraph(text = """Below is the .ini file for CLASS and the code used to run CCL
     on python. For the .ini file, save it under something like mytext.ini, then
     go to your folder with CLASS and simply run ./class myext.ini
     For the CCL one, make sure you have it installed then simply run in Python.
@@ -766,7 +807,7 @@ def lin():
     by proper factor of h, since CLASS units are proportional to factors of h
     """, width = 500)
 
-    #Create preformatted text of the .ini file used and the code for CLASS and CCL
+    # Create preformatted text of the .ini file used and the code for CLASS and CCL
     with open('../class/ini_files/lhs_lin_%05d.ini' %i, 'r') as myfile:
         ini_text = myfile.read()
     class_pretext = PreText(text='CLASS .ini file \n' + ini_text)
@@ -778,11 +819,12 @@ def lin():
     n_s_ccl = 'n_s = %s \n' %n_s
 
     index_ccl = 'index = %s \n' %index
-    #Create a textbox that tells the parameters
+    
+    # Create a textbox that tells the parameters
     parameters = PreText(text="""Parameter values \n""" + index_ccl + h_ccl +
         Omega_b_ccl + Omega_cdm_ccl + A_s_ccl + n_s_ccl)
 
-    #Create a textbox for CCL code
+    # Create a textbox for CCL code
     ccl_pretext = PreText(text=
     """Code for CCL, just simply run in python
 Make sure to have the CLASS k values, so it coincides properly
@@ -821,1205 +863,10 @@ for j in range(len(z_vals)):
     #print (script)
     #print(div)
 
-    return render_template("lin.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
+    return render_template("detail.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
 
-@app.route('/nl/')
-def nl():
-    index = request.args.get('index')
-    if index == None:
-        index = '0'
-    # Create the plot
-        # load the data
-    i = int(index)
 
-    z_vals = ['1', '2', '3', '4', '5', '6']
-    p = figure(toolbar_location="right", title = "CCL vs CLASS mPk, Non-Linear", x_axis_type = "log", y_axis_type = "log",
-        tools = "hover, pan, wheel_zoom, box_zoom, save, resize, reset")
-
-    p2 = figure(toolbar_location="right", title = "Discrepancy mPk, Non-Linear", x_axis_type = "log", y_axis_type = "log",
-         tools = "hover, pan, wheel_zoom, box_zoom, save, resize, reset")
-
-    #load the parameter values
-    data = np.loadtxt('../data/par_stan1.csv', skiprows = 1)
-
-    index = float(data[i,0])
-    h = float(data[i,1])
-    Omega_b = float(data[i,2])
-    Omega_cdm = float(data[i,3])
-    A_s = float(data[i,4])
-    n_s = float(data[i,5])
-
-    for j,color in zip(z_vals, Spectral6):
-        z_act = (float(j) - 1) / 2
-        z_path = 'z%s_pk.dat' %j
-        z_nl_path = 'z%s_pk_nl.dat' %j
-        ccl_path = '../CCL/data_files/lhs_mpk_nl_%05d' % i 
-        class_path = '../class/output/nonlin/lhs_nonlin_%05d' %i
-        ccl_path += z_path
-        class_path += z_nl_path
-
-        cclData = np.loadtxt(ccl_path,  skiprows = 1)
-        cclK = cclData[:, 0]
-        cclPk = cclData[:, 1]
-        
-        classData = np.loadtxt(class_path, skiprows = 4);
-        classKLin = classData[:, 0]
-        classPLin = classData[:, 1]
-
-        #Multiply by factors
-        #multiply k by some factor of h, CLASS and CCL use different units, ugh
-        
-        classKLin *= h
-        classPLin /= h**3
-
-        # create a plot and style its properties
-        
-        p.outline_line_color = None
-        p.grid.grid_line_color = None
-
-        p2.outline_line_color = None
-        p2.grid.grid_line_color = None
-
-        # plot the data
-        #p.circle(ccl_data['k'].values, ccl_data['pk_lin'].values, size = 5, legend = "ccl data")
-        p.line(cclK, cclPk, line_width = 2, color=color, legend='ccl data, z=%3.1f' %z_act)
-        p.circle(cclK, cclPk, size = 5, color=color, legend = "ccl data, z=%3.1f" %z_act)
-
-        #p.circle(classData['k'].values, classData['P'].values, size = 5, color = "red", legend = "class data")
-        p.line(classKLin, classPLin, line_width = 2,color=color, line_dash='dashed', legend='class data, z=%3.1f' %z_act)
-        p.square(classKLin, classPLin, size = 5, fill_alpha=0.8,color=color, legend = "class data, z=%3.1f" %z_act)
-
-        # Set the x axis label
-        # Set the y axis label
-        p.yaxis.axis_label = 'Count (log)'
-        comparisonValue = abs(cclPk - classPLin) / classPLin
-        p2.line(classKLin, comparisonValue, line_width = 2,color=color, legend='z=%3.1f' %z_act)
-        p2.circle(classKLin, abs(cclPk - classPLin) / classPLin, color=color,size = 5, legend='z=%3.1f' %z_act)
-
-    #Adds the interactive legend and the axes labels
-    p.legend.click_policy='hide'
-    p.legend.location = 'bottom_left'
-    p.yaxis.axis_label = 'P(k)'
-    p.xaxis.axis_label = 'k'
-
-
-    p2.legend.click_policy='hide'
-    p2.legend.location = 'bottom_left'
-    p2.yaxis.axis_label = '(CCL - CLASS)/CLASS'
-    p2.xaxis.axis_label = 'k'
-    #Make a textarea, so that the html will print out a textbox of the parameter values
-
-
-#Also the number for failures can either include clustering regime only or not
-    thres = 1.e-4 #Threshold for number of failures
-    clustering_only = False #Only counts failures if inside the clustering regime
-
-    ultra_scale_min = 1e-4 #Minimum for the ultra-large scales
-    ultra_scale_max = 1e-2 #Maximum for the ultra-large scales
-    lin_scale_min = 1e-2 #Min for the linear scales
-    lin_scale_max = 1e-1 #Max for the linear scales
-    quasi_scale_min = 1e-1 #Min for the quasi-lin scales
-    quasi_scale_max = 1.0 #Max for the quasi-lin scales
-
-
-    cluster_reg_min = 1e-2 #Min for the cluster regime
-    cluster_reg_max = 0.2 # Max for the cluster regime
-
-    #load the data
-
-
-    #Create arrays that will be filled in the loop over trials
-    tot_tot_nl = []
-
-    #Get the totals for the different thresholds
-    #For now, we'll denote it as 1,2,3,4,5,6
-    #1 = 5e-5
-    #2 = 1e-4
-    #3 = 5e-4
-    #4 = 1e-3
-    #5 = 5e-3
-    #6 = 1e-2
-
-    #Get the totals for different k_ranges
-    #We have 3 k_ranges, denote by 1,2,3
-    #1 = Ultra Large Scales
-    #2 = Linear scales
-    #3 = Nonlinear scales
-
-
-    ###########################
-    #                         #
-    #GETTING THE SUMMARY STATS#
-    #                         #
-    ###########################
-    #for i in range(len(trial_arr)):
-    print("\n\ni is ", i)
-    print("\n\nin summary statistic plot")
-
-    trial = data[i,0]
-    print ('Performing trial %05d' %trial)
-
-    z_vals = ['1', '2', '3', '4', '5', '6']
-
-    print ('Performing this for nonlin')
-    #Gonna generate an array of arrays, with each row corresponding to a different z value
-    #Each columns will correspond to a different bins of k_values
-    tot_nl = []
-
-    #For list of lists
-    tot_nl_ll = []
-
-    for j in range(len(z_vals)):
-        z_val = z_vals[j]
-        z_path ='_z%s.dat' %z_val
-        print ('Performing z_val = ', z_val)
-
-        #For ease in iterating over different z values we use string manipulation
-        #stats_nl_path = '../../stats/lhs/nl/non_pre/lhs_mpk_err_nl_%05d' %trial
-        stats_nl_path = '../stats/lhs_mpk_err_nl_%05d' %trial
-
-        #Adds the z_path
-        stats_nl_path += z_path
-
-        #Calls the data
-        stats_nl_data = np.loadtxt(stats_nl_path, skiprows=1)
-
-        stats_nl_k = stats_nl_data[:,0]
-        stats_nl_err = stats_nl_data[:,1]
-
-        #Create arrays that will be used to fill the complete summary arrays
-        tot_nl_z = []
-
-        #For list of lists
-        tot_nl_z_ll = []
-
-        #We perform a loop that looks into the bins for k
-        #Doing this for lin
-        #Much easier than doing a for loop because of list comprehension ALSO FASTER
-        tot_ultra = 0 #initialize value for ultra large scales
-        tot_lin = 0 #initialize for lin scales
-        tot_quasi = 0 #initialize for quasi lin scales
-
-        #k has to fall in the proper bins
-        aux_k_ultra = (stats_nl_k >= ultra_scale_min) & (stats_nl_k < ultra_scale_max)
-        aux_k_lin = (stats_nl_k >= lin_scale_min) & (stats_nl_k < lin_scale_max)
-        aux_k_quasi = (stats_nl_k >= quasi_scale_min) & (stats_nl_k <= quasi_scale_max)
-
-        #Looks at only the regime where clustering affects it
-        if clustering_only == True:
-            aux_cluster_ultra = (stats_nl_k[aux_k_ultra] > cluster_reg_min) & (stats_nl_k[aux_k_ultra] < cluster_reg_max)
-            aux_cluster_lin = (stats_nl_k[aux_k_lin] > cluster_reg_min) & (stats_nl_k[aux_k_lin] < cluster_reg_max)
-            aux_cluster_quasi = (stats_nl_k[aux_k_quasi] > cluster_reg_min) & (stats_nl_k[aux_k_quasi] < cluster_reg_max)
-
-            #Calculate the weights i.e. how badly has this bin failed
-            w_ultra = np.log10(np.abs((stats_nl_err[aux_k_ultra])[aux_cluster_ultra]) / thres)
-            w_lin = np.log10(np.abs((stats_nl_err[aux_k_lin])[aux_cluster_lin]) / thres)
-            w_quasi = np.log10(np.abs((stats_nl_err[aux_k_quasi])[aux_cluster_quasi]) / thres)
-
-            #Make all the negative values = 0, since that means they didn't pass the threshold
-            aux_ultra_neg = w_ultra < 0.
-            aux_lin_neg = w_lin < 0.
-            aux_quasi_neg = w_quasi < 0.
-
-            w_ultra[aux_ultra_neg] = 0
-            w_lin[aux_lin_neg] = 0
-            w_quasi[aux_quasi_neg] = 0
-
-            tot_ultra = np.sum(w_ultra)
-            tot_lin = np.sum(w_lin)
-            tot_quasi = np.sum(w_quasi)
-        #calculates imprecision in any regime
-        if clustering_only == False:
-            #caluclate the weights i.e. how badly has this bin failed
-            w_ultra = np.log10(np.abs(stats_nl_err[aux_k_ultra]) / thres)
-            w_lin = np.log10(np.abs(stats_nl_err[aux_k_lin]) / thres)
-            w_quasi = np.log10(np.abs(stats_nl_err[aux_k_quasi]) / thres)
-
-            #Make all the negative values = 0, since that means they didn't pass the threshold
-            aux_ultra_neg = w_ultra < 0.
-            aux_lin_neg = w_lin < 0.
-            aux_quasi_neg = w_quasi < 0.
-
-            w_ultra[aux_ultra_neg] = 0
-            w_lin[aux_lin_neg] = 0
-            w_quasi[aux_quasi_neg] = 0
-
-            #calculate the totals
-            tot_ultra = np.sum(w_ultra)
-            tot_lin = np.sum(w_lin)
-            tot_quasi = np.sum(w_quasi)
-
-
-        #Append these values to our z summary stat
-        #For list only
-        tot_nl_z = np.append(tot_nl_z, tot_ultra)
-        tot_nl_z = np.append(tot_nl_z, tot_ultra) # 2 bins
-        tot_nl_z = np.append(tot_nl_z, tot_lin)
-        tot_nl_z = np.append(tot_nl_z, tot_quasi)
-
-        #For list of lists
-        tot_nl_z_ll.append(tot_ultra)
-        tot_nl_z_ll.append(tot_ultra) # 2 bins
-        tot_nl_z_ll.append(tot_lin)
-        tot_nl_z_ll.append(tot_quasi)
-
-        #Append these values for the general z stat
-        #For list only
-        tot_nl = np.append(tot_nl, tot_nl_z)
-        #For list of lists
-        tot_nl_ll.append(tot_nl_z_ll)
-
-
-    tot_tot_nl = np.append(tot_tot_nl,np.sum(tot_nl))
-
-
-	#Generate our z values for plotting
-    z_actual = range(len(z_vals))
-    z_arr = np.float_(np.asarray(z_actual))
-    z_arr *= 0.5
-    z = []
-    z_ll = []	#Create a heat map, but makes it red, right now we just mark threshold on the heat map
-    for j in range(len(z_actual)):
-        z_full = np.full(len(tot_nl_ll[0]), z_arr[j])
-        z = np.append(z,z_full)
-        z_ll.append(z_full)
-
-	#Generate an array of the midpoints of the bins
-    
-    ultra_scale_bin = (np.log10(ultra_scale_max) + np.log10(ultra_scale_min))/2
-    ultra_scale_bin_1 = ultra_scale_bin - 0.5
-    ultra_scale_bin_2 = ultra_scale_bin + 0.5
-    lin_scale_bin = (np.log10(lin_scale_max) + np.log10(lin_scale_min))/2
-    quasi_scale_bin = (np.log10(quasi_scale_max) + np.log10(quasi_scale_min))/2
-
-    k_bin = [ultra_scale_bin_1, ultra_scale_bin_2, lin_scale_bin, quasi_scale_bin]
-    k_list = k_bin * len(z_vals) 
-
-	#Gonna try to plot it the pandas way
-	#WORKS!!!! AND it fills the whole space. FUCKING LIT
-    k_words = ['Ultra-large', 'Linear', 'Quasi Lin']
-	#Use pandas to generate a data frame
-    #df = pd.DataFrame(sum_lin_ll, index=z_arr, columns=k_words)
-
-	#Values greater than threshold will be red, values at 0 will be green
-	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-    #print(sum_lin_z_ll)
-
-    #print(sum_lin_z)
-    #df = pd.DataFrame(tot_nl_ll, index=z_arr, columns=k_words)
-    data_nl = {'tot_nl': tot_nl, 'z':z, 'k':k_list}
-    source = ColumnDataSource(data=data_nl)
-
-	#Values greater than threshold will be red, values at 0 will be green
-	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-
-	#Trying to brute force colors for me
-    colors = ['#fff5ee', '#ffe4e1', '#ffc1c1', '#eeb4b4', '#f08080', '#ee6363', '#d44942', '#cd0000', '#ff0000']
-    mapper = LinearColorMapper(palette = colors, low = 0, high = 100)
-    TOOLS = 'hover, pan, wheel_zoom, box_zoom, save, resize, reset'
-
-    p_sum = figure(title = "Summary Statistic", toolbar_location = "above", tools = TOOLS)
-        #tools = TOOLS)
-
-    p_sum.grid.grid_line_color = None
-    p_sum.axis.axis_line_color = None
-    p_sum.axis.major_tick_line_color = None
-    p_sum.axis.major_label_text_font_size = "12pt"
-    p_sum.axis.major_label_standoff = 0
-    p_sum.xaxis.major_label_orientation = 0.5
-    p_sum.rect('k', 'z', source = source, width = (1.0), height = (0.5), fill_color={'field': 'tot_nl', 'transform':mapper}, line_color= None)
-
-
-    color_bar = ColorBar(color_mapper=mapper, major_label_text_font_size='12pt',
-                    ticker=BasicTicker(desired_num_ticks=len(colors)),
-                    label_standoff=6, border_line_color=None, location=(0,0))
-
-
-    p_sum.add_layout(color_bar, 'right')
-    p_sum.xaxis.axis_label = "log k"
-    p_sum.yaxis.axis_label = "z"
-
-    id_val_string = 'Index = %s <br/>' %index
-    h_string = 'h = %s <br/>' %h
-    Omega_b_string = '&Omega;<sub>b</sub> = %s <br/>' %Omega_b
-    Omega_cdm_string = '&Omega;<sub>cdm</sub> = %s <br/>' %Omega_cdm
-    A_s_string = 'A<sub>s</sub> = %s <br/>' %A_s
-    n_s_string = 'n<sub>s</sub> = %s <br/>' %n_s
-
-    #Textbox html code
-    textbox = '<div class=\'boxed\'> Parameter values: <br/>' + id_val_string + h_string + Omega_b_string + Omega_cdm_string + A_s_string + n_s_string + '</div>'
-    
-    #Create a paragraph to tell the users what to do
-    readme = Paragraph(text = """If you want to recreate these plots, look
-    no further! Below is the .ini file for CLASS and the code used to run CCL
-    on python. For the .ini file, save it under something like mytext.ini, then
-    go to your folder with CLASS and simply run ./class myext.ini
-    For the CCL one, make sure you have it installed then simply run in Python.
-    When you plot these against each other make sure to multiply the CLASS values
-    by proper factor of h, since CLASS units are proportional to factors of h
-    """, width = 500)
-
-    #Create preformatted text of the .ini file used and the code for CLASS and CCL
-    with open('../class/ini_files/lhs_nonlin_%05d.ini' %i, 'r') as myfile:
-        ini_text = myfile.read()
-    class_pretext = PreText(text='CLASS .ini file \n' + ini_text)
-
-    index_ccl = 'index = %s \n' %index
-    h_ccl = 'h = %s \n' %h
-    Omega_b_ccl = 'Omega_b = %s \n' %Omega_b
-    Omega_cdm_ccl = 'Omega_cdm = %s \n' %Omega_cdm
-    A_s_ccl = 'A_s = %s \n' %A_s
-    n_s_ccl = 'n_s = %s \n' %n_s
-
-    #Create a textbox that tells the parameters
-    parameters = PreText(text="""Parameter values \n""" + index_ccl + h_ccl +
-        Omega_b_ccl + Omega_cdm_ccl + A_s_ccl + n_s_ccl)
-
-    #Create one for the CCL code used
-    ccl_pretext = PreText(text=
-    """Code for CCL, just simply run in python
-Make sure to have the CLASS k values, so it coincides properly
-i.e. make sure the class_path_nl is correct
-
-import numpy as np
-import pyccl
-
-""" + 
-    h_ccl + Omega_b_ccl + Omega_cdm_ccl + A_s_ccl + n_s_ccl + 
-    """
-cosmo = pyccl.Cosmology(Omega_c=Omega_cdm, Omega_b=Omega_b, h=h, A_s=A_s, n_s=n_s, transfer_function='boltzmann')
-z_vals = ['1', '2', '3', '4', '5', '6']
-for j in range(len(z_vals)):
-    z_val = z_vals[j]
-    class_path_nl = '/class/output/nonlin/lhs_nonlin_%s' %trial
-    z_path = 'z%s_pk_nl.dat' %z_val
-    k_nl_data = np.loadtxt(class_path_nl, skiprows=4)
-    k_nl = k_nl_data[:,0]
-    k_nl *= h
-    #Since our z values are like [0, 0.5, 1.,...] with 0.5 steps
-    z = j * 0.5
-    a = 1. / (1. + z)
-    #Matter power spectrum for nonlin
-    pk_nl = pyccl.nonlinear_matter_power(cosmo, k_nl, a)
-    """, width=500)
-
-    #ccl_pretext = 
-    # Embed plot into HTML via Flask Render
-
-    #Create whitespace to fill between class_pretext and ccl_pretext
-    whitespace = PreText(text = """ """, width = 200)
-    #l = layout([[p2,p,],[WidgetBox(readme),],[WidgetBox(class_pretext),WidgetBox(whitespace), WidgetBox(ccl_pretext),]])
-    l = layout([[p_sum, parameters],[p2,p,],[WidgetBox(readme),],[WidgetBox(class_pretext),WidgetBox(whitespace), WidgetBox(ccl_pretext),]])
-    # Embed plot into HTML via Flask Render
-
-    script, div = components(l)
-    #print (script)
-    #print(div)
-    #print(div)
-
-    return render_template("nl.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
-
-
-@app.route('/lin_pre/')
-def lin_pre():
-    index = request.args.get('index')
-    if index == None:
-        index = '0'
-    i = int(index)
-    # Create the plot
-    #load the data
-    z_vals = ['1', '2', '3', '4', '5', '6']
-    p = figure(toolbar_location="right", title = "CCL vs CLASS mPk, Linear Precision", x_axis_type = "log", y_axis_type = "log",
-        tools = "hover, pan, wheel_zoom, box_zoom, save, resize, reset")
-
-    p2 = figure(toolbar_location="right", title = "Discrepancy mPk, Linear Precision", x_axis_type = "log", y_axis_type = "log",
-         tools = "hover, pan, wheel_zoom, box_zoom, save, resize, reset")
-
-    #load the parameter values
-    data = np.loadtxt('../data/par_stan1.csv', skiprows = 1)
-   
-    index = float(data[i,0])
-    h = float(data[i,1])
-    Omega_b = float(data[i,2])
-    Omega_cdm = float(data[i,3])
-    A_s = float(data[i,4])
-    n_s = float(data[i,5])
-    for j, color in zip(z_vals, Spectral6):
-        z_act = (float(j) - 1) / 2
-        z_path = 'z%s_pk.dat' %j
-        ccl_path = '../CCL/data_files/lhs_mpk_lin_pk_%05d' % i 
-        class_path = '../class/output/lin/lhs_lin_pk_%05d' %i
-        ccl_path += z_path
-        class_path += z_path
-
-        cclData = np.loadtxt(ccl_path,  skiprows = 1)
-        cclK = cclData[:, 0]
-        cclPk = cclData[:, 1]
-
-        classData = np.loadtxt(class_path, skiprows = 4);
-        classKLin = classData[:, 0]
-        classPLin = classData[:, 1]
-
-        #Multiply by factors
-        #multiply k by some factor of h, CLASS and CCL use different units, ugh
-
-        classKLin *= h
-        classPLin /= h**3
-
-        # create a plot and style its properties
-        
-        p.outline_line_color = None
-        p.grid.grid_line_color = None
-
-        p2.outline_line_color = None
-        p2.grid.grid_line_color = None
-
-        # plot the data
-        #p.circle(ccl_data['k'].values, ccl_data['pk_lin'].values, size = 5, legend = "ccl data")
-        p.line(cclK, cclPk, line_width = 2, color=color, legend='ccl data, z=%3.1f' %z_act)
-        p.circle(cclK, cclPk, size = 5, color=color, legend = "ccl data, z=%3.1f" %z_act)
-
-        #p.circle(classData['k'].values, classData['P'].values, size = 5, color = "red", legend = "class data")
-        p.line(classKLin, classPLin, line_width = 2,color=color, line_dash='dashed', legend='class data, z=%3.1f' %z_act)
-        p.square(classKLin, classPLin, size = 5, fill_alpha=0.8,color=color, legend = "class data, z=%3.1f" %z_act)
-
-        # Set the x axis label
-        # Set the y axis label
-        p.yaxis.axis_label = 'Count (log)'
-        comparisonValue = abs(cclPk - classPLin) / classPLin
-        p2.line(classKLin, comparisonValue, line_width = 2,color=color, legend='z=%3.1f' %z_act)
-        p2.circle(classKLin, abs(cclPk - classPLin) / classPLin, color=color,size = 5, legend='z=%3.1f' %z_act)
-
-    #Adds the interactive legend and the axes
-    p.legend.click_policy='hide'
-    p.legend.location = 'bottom_left'
-    p.yaxis.axis_label = 'P(k)'
-    p.xaxis.axis_label = 'k'
-
-
-    p2.legend.click_policy='hide'
-    p2.legend.location = 'bottom_left'
-    p2.yaxis.axis_label = '(CCL - CLASS)/CLASS'
-    p2.xaxis.axis_label = 'k'
-    
-    #Also the number for failures can either include clustering regime only or not
-    thres = 1.e-4 #Threshold for number of failures
-    clustering_only = False #Only counts failures if inside the clustering regime
-
-    ultra_scale_min = 1e-4 #Minimum for the ultra-large scales
-    ultra_scale_max = 1e-2 #Maximum for the ultra-large scales
-    lin_scale_min = 1e-2 #Min for the linear scales
-    lin_scale_max = 1e-1 #Max for the linear scales
-    quasi_scale_min = 1e-1 #Min for the quasi-lin scales
-    quasi_scale_max = 1.0 #Max for the quasi-lin scales
-
-
-    cluster_reg_min = 1e-2 #Min for the cluster regime
-    cluster_reg_max = 0.2 # Max for the cluster regime
-
-    #load the data
-
-
-    #Create arrays that will be filled in the loop over trials
-    #Total of the wights
-    tot_tot_lin_pre = []
-    tot_tot_nl_pre = []
-
-    #Get the totals for different k_ranges
-    #We have 3 k_ranges, denote by 1,2,3
-    #1 = Ultra Large Scales
-    #2 = Linear scales
-    #3 = Nonlinear scales
-
-
-    ###########################
-    #                         #
-    #GETTING THE SUMMARY STATS#
-    #                         #
-    ###########################
-    #for i in range(len(trial_arr)):
-    trial = data[i,0]
-    print ('Performing trial %05d' %trial)
-
-    z_vals = ['1', '2', '3', '4', '5', '6']
-
-
-    #Gonna generate an array of arrays, with each row corresponding to a different z value
-    #Each columns will correspond to a different bins of k_values
-    tot_lin_pre = []
-
-    #For list of lists
-    tot_lin_pre_ll = []
-
-
-
-    for j in range(len(z_vals)):
-        z_val = z_vals[j]
-        z_path ='_z%s.dat' %z_val
-        print ('Performing z_val = ', z_val)
-
-        #For ease in iterating over different z values we use string manipulation
-        #stats_lin_pre_path = '../../stats/lhs/lin/pre/lhs_mpk_err_lin_pk_%05d' %trial
-        stats_lin_pre_path = '../stats/lhs_mpk_err_lin_pk_%05d' %trial
-
-        #Adds the z_path
-        stats_lin_pre_path += z_path
-
-        #Calls the data
-        stats_lin_pre_data = np.loadtxt(stats_lin_pre_path, skiprows=1)
-
-        stats_lin_pre_k = stats_lin_pre_data[:,0]
-        stats_lin_pre_err = stats_lin_pre_data[:,1]
-
-        #Create arrays that will be used to fill the complete summary arrays
-        tot_lin_pre_z = []
-
-        #For list of lists
-        tot_lin_pre_z_ll = []
-
-        #We perform a loop that looks into the bins for k
-        #Doing this for lin
-        #Much easier than doing a for loop because of list comprehension ALSO FASTER
-        tot_ultra = 0 #initialize value for ultra large scales
-        tot_lin = 0 #initialize for lin scales
-        tot_quasi = 0 #initialize for quasi lin scales
-
-        #k has to fall in the proper bins
-        aux_k_ultra = (stats_lin_pre_k >= ultra_scale_min) & (stats_lin_pre_k < ultra_scale_max)
-        aux_k_lin = (stats_lin_pre_k >= lin_scale_min) & (stats_lin_pre_k < lin_scale_max)
-        aux_k_quasi = (stats_lin_pre_k >= quasi_scale_min) & (stats_lin_pre_k <= quasi_scale_max)
-
-        #Looks at only the regime where clustering affects it
-        if clustering_only == True:
-            aux_cluster_ultra = (stats_lin_pre_k[aux_k_ultra] > cluster_reg_min) & (stats_lin_pre_k[aux_k_ultra] < cluster_reg_max)
-            aux_cluster_lin = (stats_lin_pre_k[aux_k_lin] > cluster_reg_min) & (stats_lin_pre_k[aux_k_lin] < cluster_reg_max)
-            aux_cluster_quasi = (stats_lin_pre_k[aux_k_quasi] > cluster_reg_min) & (stats_lin_pre_k[aux_k_quasi] < cluster_reg_max)
-
-            #Calculate the weights i.e. how badly has this bin failed
-            w_ultra = np.log10(np.abs((stats_lin_pre_err[aux_k_ultra])[aux_cluster_ultra]) / thres)
-            w_lin = np.log10(np.abs((stats_lin_pre_err[aux_k_lin])[aux_cluster_lin]) / thres)
-            w_quasi = np.log10(np.abs((stats_lin_pre_err[aux_k_quasi])[aux_cluster_quasi]) / thres)
-
-            #Make all the negative values = 0, since that means they didn't pass the threshold
-            aux_ultra_neg = w_ultra < 0.
-            aux_lin_neg = w_lin < 0.
-            aux_quasi_neg = w_quasi < 0.
-
-            w_ultra[aux_ultra_neg] = 0
-            w_lin[aux_lin_neg] = 0
-            w_quasi[aux_quasi_neg] = 0
-
-            tot_ultra = np.sum(w_ultra)
-            tot_lin = np.sum(w_lin)
-            tot_quasi = np.sum(w_quasi)
-        #calculates imprecision in any regime
-        if clustering_only == False:
-            #caluclate the weights i.e. how badly has this bin failed
-            w_ultra = np.log10(np.abs(stats_lin_pre_err[aux_k_ultra]) / thres)
-            w_lin = np.log10(np.abs(stats_lin_pre_err[aux_k_lin]) / thres)
-            w_quasi = np.log10(np.abs(stats_lin_pre_err[aux_k_quasi]) / thres)
-
-            #Make all the negative values = 0, since that means they didn't pass the threshold
-            aux_ultra_neg = w_ultra < 0.
-            aux_lin_neg = w_lin < 0.
-            aux_quasi_neg = w_quasi < 0.
-
-            w_ultra[aux_ultra_neg] = 0
-            w_lin[aux_lin_neg] = 0
-            w_quasi[aux_quasi_neg] = 0
-
-            #calculate the totals
-            tot_ultra = np.sum(w_ultra)
-            tot_lin = np.sum(w_lin)
-            tot_quasi = np.sum(w_quasi)
-
-
-        #Append these values to our z summary stat
-        #For list only
-        tot_lin_pre_z = np.append(tot_lin_pre_z, tot_ultra)
-        tot_lin_pre_z = np.append(tot_lin_pre_z, tot_ultra) # This is because we have 2 ultra_large bins
-        tot_lin_pre_z = np.append(tot_lin_pre_z, tot_lin)
-        tot_lin_pre_z = np.append(tot_lin_pre_z, tot_quasi)
-
-        #For list of lists
-        tot_lin_pre_z_ll.append(tot_ultra)
-        tot_lin_pre_z_ll.append(tot_ultra) #This is because we have 2 ultra_large bins
-        tot_lin_pre_z_ll.append(tot_lin)
-        tot_lin_pre_z_ll.append(tot_quasi)
-
-        #Append these values for the general z stat
-        #For list only
-        tot_lin_pre = np.append(tot_lin_pre, tot_lin_pre_z)
-        #For list of lists
-        tot_lin_pre_ll.append(tot_lin_pre_z_ll)
-
-    tot_tot_lin_pre = np.append(tot_tot_lin_pre, np.sum(tot_lin_pre))
-
-
-
-	#Generate our z values for plotting
-    z_actual = range(len(z_vals))
-    z_arr = np.float_(np.asarray(z_actual))
-    z_arr *= 0.5
-    z = []
-    z_ll = []	#Create a heat map, but makes it red, right now we just mark threshold on the heat map
-    for j in range(len(z_actual)):
-        z_full = np.full(len(tot_lin_pre_ll[0]) , z_arr[j]) #The +1 is to make it 4 bins
-        print z_full
-        z = np.append(z,z_full)
-        z_ll.append(z_full)
-
-    
-	#Generate an array of the midpoints of the bins
-    #We have 2 ultra scale bins to make it evenly spaced out
-    ultra_scale_bin = (np.log10(ultra_scale_max) + np.log10(ultra_scale_min))/2
-    ultra_scale_bin_1 = ultra_scale_bin - 0.5
-    ultra_scale_bin_2 = ultra_scale_bin + 0.5
-    lin_scale_bin = (np.log10(lin_scale_max) + np.log10(lin_scale_min))/2
-    quasi_scale_bin = (np.log10(quasi_scale_max) + np.log10(quasi_scale_min))/2
-
-    k_bin = [ultra_scale_bin_1, ultra_scale_bin_2, lin_scale_bin, quasi_scale_bin]
-    k_list = k_bin * len(z_vals) 
-    #log_k_list = np.log10(k_list)
-
-	#Gonna try to plot it the pandas way
-	#WORKS!!!! AND it fills the whole space. FUCKING LIT
-    k_words = ['Ultra-large', 'Linear', 'Quasi Lin']
-	#Use pandas to generate a data frame
-    #df = pd.DataFrame(sum_lin_ll, index=z_arr, columns=k_words)
-
-	#Values greater than threshold will be red, values at 0 will be green
-	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-    #print(sum_lin_z_ll)
-
-    #print(sum_lin_z)
-    print len(tot_lin_pre), len(z), len(k_list)
-    data_lin_pre = {'tot_lin_pre': tot_lin_pre, 'z':z, 'k':k_list}
-    source = ColumnDataSource(data=data_lin_pre)
-
-	#Values greater than threshold will be red, values at 0 will be green
-	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-
-	#Trying to brute force colors for me
-    colors = ['#fff5ee', '#ffe4e1', '#ffc1c1', '#eeb4b4', '#f08080', '#ee6363', '#d44942', '#cd0000', '#ff0000']
-    mapper = LinearColorMapper(palette = colors, low = 0, high = 100)
-
-    TOOLS = 'hover, pan, wheel_zoom, box_zoom, save, resize, reset'
-    p_sum = figure(title = "Summary Statistic", toolbar_location = "above", tools=TOOLS)
-        #tools = tools)
-
-    p_sum.grid.grid_line_color = None
-    p_sum.axis.axis_line_color = None
-    p_sum.axis.major_tick_line_color = None
-    p_sum.axis.major_label_text_font_size = "12pt"
-    p_sum.axis.major_label_standoff = 0
-    p_sum.xaxis.major_label_orientation = 0.5
-    p_sum.rect('k', 'z', source = source, width = (1.0), height = (0.5), fill_color={'field': 'tot_lin_pre', 'transform':mapper}, line_color= None)
-
-
-    color_bar = ColorBar(color_mapper=mapper, major_label_text_font_size='12pt',
-                    ticker=BasicTicker(desired_num_ticks=len(colors)),
-                    label_standoff=6, border_line_color=None, location=(0,0))
-
-
-    p_sum.add_layout(color_bar, 'right')
-    p_sum.xaxis.axis_label = "log k"
-    p_sum.yaxis.axis_label = "z"
-    
-    
-    #Make a textarea, so that the html will print out a textbox of the parameter values
-
-    id_val_string = 'Index = %s <br/>' %index
-    h_string = 'h = %s <br/>' %h
-    Omega_b_string = '&Omega;<sub>b</sub> = %s <br/>' %Omega_b
-    Omega_cdm_string = '&Omega;<sub>cdm</sub> = %s <br/>' %Omega_cdm
-    A_s_string = 'A<sub>s</sub> = %s <br/>' %A_s
-    n_s_string = 'n<sub>s</sub> = %s <br/>' %n_s
-
-    #Textbox html
-    textbox = '<div class=\'boxed\'> Parameter values: <br/>' + id_val_string + h_string + Omega_b_string + Omega_cdm_string + A_s_string + n_s_string + '</div>'
-    
-    #Create a paragraph to tell the users what to do
-    readme = Paragraph(text = """If you want to recreate these plots, look
-    no further! Below is the .ini file for CLASS and the code used to run CCL
-    on python. For the .ini file, save it under something like mytext.ini, then
-    go to your folder with CLASS and simply run ./class myext.ini pk_ref.pre
-    REMEMBER TO ADD THAT LAST ARGUMENT SINCE THAT ALLOWS FOR A HIGHER PRECISION
-    For the CCL one, make sure you have it installed then simply run in Python.
-    When you plot these against each other make sure to multiply the CLASS values
-    by proper factor of h, since CLASS units are proportional to factors of h
-    """, width = 500)
-
-    #Create preformatted text of the .ini file used and the code for CLASS and CCL
-    with open('../class/ini_files/lhs_lin_pk_%05d.ini' %i, 'r') as myfile:
-        ini_text = myfile.read()
-    class_pretext = PreText(text='CLASS .ini file \n' + ini_text)
-
-    h_ccl = 'h = %s \n' %h
-    Omega_b_ccl = 'Omega_b = %s \n' %Omega_b
-    Omega_cdm_ccl = 'Omega_cdm = %s \n' %Omega_cdm
-    A_s_ccl = 'A_s = %s \n' %A_s
-    n_s_ccl = 'n_s = %s \n' %n_s
-
-    index_ccl = 'index = %s \n' %index
-    #Create a textbox that tells the parameters
-    parameters = PreText(text="""Parameter values \n""" + index_ccl + h_ccl +
-        Omega_b_ccl + Omega_cdm_ccl + A_s_ccl + n_s_ccl)
-
-    #Create one for the CCL code used
-    ccl_pretext = PreText(text=
-    """Code for CCL, just simply run in python
-Make sure to have the CLASS k values, so it coincides properly
-i.e. make sure the class_path_lin is correct
-
-import numpy as np
-import pyccl
-
-""" + 
-    h_ccl + Omega_b_ccl + Omega_cdm_ccl + A_s_ccl + n_s_ccl + 
-    """
-cosmo = pyccl.Cosmology(Omega_c=Omega_cdm, Omega_b=Omega_b, h=h, A_s=A_s, n_s=n_s, transfer_function='boltzmann')
-z_vals = ['1', '2', '3', '4', '5', '6']
-for j in range(len(z_vals)):
-    z_val = z_vals[j]
-    class_path_lin = '/class/output/lin/lhs_lin_pk_%s' %trial
-    z_path = 'z%s_pk.dat' %z_val
-    k_lin_data = np.loadtxt(class_path_lin, skiprows=4)
-    k_lin = k_lin_data[:,0]
-    k_lin *= h
-    #Since our z values are like [0, 0.5, 1.,...] with 0.5 steps
-    z = j * 0.5
-    a = 1. / (1. + z)
-    #Matter power spectrum for lin
-    pk_lin = pyccl.linear_matter_power(cosmo, k_lin, a)
-    """, width=500)
-
-    #ccl_pretext = 
-    # Embed plot into HTML via Flask Render
-
-    #Create whitespace to fill between class_pretext and ccl_pretext
-    whitespace = PreText(text = """ """, width = 200)
-    #l = layout([[p2,p,],[WidgetBox(readme),],[WidgetBox(class_pretext),WidgetBox(whitespace), WidgetBox(ccl_pretext),]])
-    l = layout([[p_sum, parameters],[p2,p,],[WidgetBox(readme),],[WidgetBox(class_pretext),WidgetBox(whitespace), WidgetBox(ccl_pretext),]])
-    # Embed plot into HTML via Flask Render
-    script, div = components(l)
-    #print (script)
-    #print(div)
-
-    return render_template("lin_pre.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
-
-@app.route('/nl_pre/')
-def nl_pre():
-    index = request.args.get('index')
-    if index == None:
-        index = '0'
-    #Create the plot and get the parameter values
-
-    # load the data
-    i = int(index)
-
-    z_vals = ['1', '2', '3', '4', '5', '6']
-    p = figure(toolbar_location="right", title = "CCL vs CLASS mPk, Non-Linear Precision", x_axis_type = "log", y_axis_type = "log",
-        tools = "hover, pan, wheel_zoom, box_zoom, save, resize, reset")
-
-    p2 = figure(toolbar_location="right", title = "Discrepancy mPk, Non-Linear Precision", x_axis_type = "log", y_axis_type = "log",
-         tools = "hover, pan, wheel_zoom, box_zoom, save, resize, reset")
-   
-    #load the data and parameter values
-    data = np.loadtxt('../data/par_stan1.csv', skiprows = 1)
-    index = float(data[i,0])
-    h = float(data[i,1])
-    Omega_b = float(data[i,2])
-    Omega_cdm = float(data[i,3])
-    A_s = float(data[i,4])
-    n_s = float(data[i,5])
-    for j, color in zip(z_vals, Spectral6):
-        z_act = (float(j) - 1) / 2
-        z_path = 'z%s_pk.dat' %j
-        z_nl_path = 'z%s_pk_nl.dat' %j
-        ccl_path = '../CCL/data_files/lhs_mpk_nl_pk_%05d' % i 
-        class_path = '../class/output/nonlin/lhs_nonlin_pk_%05d' %i
-        ccl_path += z_path
-        class_path += z_nl_path
-
-        cclData = np.loadtxt(ccl_path,  skiprows = 1)
-        cclK = cclData[:, 0]
-        cclPk = cclData[:, 1]
-
-        classData = np.loadtxt(class_path, skiprows = 4);
-        classKLin = classData[:, 0]
-        classPLin = classData[:, 1]
-
-        #Multiply by factors
-        #multiply k by some factor of h, CLASS and CCL use different units, ugh
-
-        classKLin *= h
-        classPLin /= h**3
-
-        # create a plot and style its properties
-        
-        p.outline_line_color = None
-        p.grid.grid_line_color = None
-
-        p2.outline_line_color = None
-        p2.grid.grid_line_color = None
-
-        # plot the data
-        #p.circle(ccl_data['k'].values, ccl_data['pk_lin'].values, size = 5, legend = "ccl data")
-        p.line(cclK, cclPk, line_width = 2, color=color, legend='ccl data, z=%3.1f' %z_act)
-        p.circle(cclK, cclPk, size = 5, color=color, legend = "ccl data, z=%3.1f" %z_act)
-
-        #p.circle(classData['k'].values, classData['P'].values, size = 5, color = "red", legend = "class data")
-        p.line(classKLin, classPLin, line_width = 2,color=color, line_dash='dashed', legend='class data, z=%3.1f' %z_act)
-        p.square(classKLin, classPLin, size = 5, fill_alpha=0.8,color=color, legend = "class data, z=%3.1f" %z_act)
-
-        # Set the x axis label
-        # Set the y axis label
-        p.yaxis.axis_label = 'Count (log)'
-        comparisonValue = abs(cclPk - classPLin) / classPLin
-        p2.line(classKLin, comparisonValue, line_width = 2,color=color, legend='z=%3.1f' %z_act)
-        p2.circle(classKLin, abs(cclPk - classPLin) / classPLin, color=color,size = 5, legend='z=%3.1f' %z_act)
-
-    #Adds the interactive legend and the axes labels
-    p.legend.click_policy='hide'
-    p.legend.location = 'bottom_left'
-    p.yaxis.axis_label = 'P(k)'
-    p.xaxis.axis_label = 'k'
-
-
-    p2.legend.click_policy='hide'
-    p2.legend.location = 'bottom_left'
-    p2.yaxis.axis_label = '(CCL - CLASS)/CLASS'
-    p2.xaxis.axis_label = 'k'
-
-    #Also the number for failures can either include clustering regime only or not
-    thres = 1.e-4 #Threshold for number of failures
-    clustering_only = False #Only counts failures if inside the clustering regime
-
-    ultra_scale_min = 1e-4 #Minimum for the ultra-large scales
-    ultra_scale_max = 1e-2 #Maximum for the ultra-large scales
-    lin_scale_min = 1e-2 #Min for the linear scales
-    lin_scale_max = 1e-1 #Max for the linear scales
-    quasi_scale_min = 1e-1 #Min for the quasi-lin scales
-    quasi_scale_max = 1.0 #Max for the quasi-lin scales
-
-
-    cluster_reg_min = 1e-2 #Min for the cluster regime
-    cluster_reg_max = 0.2 # Max for the cluster regime
-
-    #load the data
-
-
-    #Create arrays that will be filled in the loop over trials
-    #Total of the wights
-    tot_tot_nl_pre = []
-
-    #Get the totals for different k_ranges
-    #We have 3 k_ranges, denote by 1,2,3
-    #1 = Ultra Large Scales
-    #2 = Linear scales
-    #3 = Nonlinear scales
-
-
-    ###########################
-    #                         #
-    #GETTING THE SUMMARY STATS#
-    #                         #
-    ###########################
-    #for i in range(len(trial_arr)):
-    trial = data[i,0]
-    print ('Performing trial %05d' %trial)
-
-    z_vals = ['1', '2', '3', '4', '5', '6']
-
-    #Gonna generate an array of arrays, with each row corresponding to a different z value
-    #Each columns will correspond to a different bins of k_values
-    tot_nl_pre = []
-
-    #For list of lists
-    tot_nl_pre_ll = []
-
-    for j in range(len(z_vals)):
-        z_val = z_vals[j]
-        z_path ='_z%s.dat' %z_val
-        print ('Performing z_val = ', z_val)
-
-        #For ease in iterating over different z values we use string manipulation
-        #stats_nl_pre_path = '../../stats/lhs/nl/pre/lhs_mpk_err_nl_pk_%05d' %trial
-        stats_nl_pre_path = '../stats/lhs_mpk_err_nl_pk_%05d' %trial
-
-        #Adds the z_path
-        stats_nl_pre_path += z_path
-
-        #Calls the data
-        stats_nl_pre_data = np.loadtxt(stats_nl_pre_path, skiprows=1)
-
-        stats_nl_pre_k = stats_nl_pre_data[:,0]
-        stats_nl_pre_err = stats_nl_pre_data[:,1]
-
-        #Create arrays that will be used to fill the complete summary arrays
-        tot_nl_pre_z = []
-
-        #For list of lists
-        tot_nl_pre_z_ll = []
-
-        #We perform a loop that looks into the bins for k
-        #Doing this for lin
-        #Much easier than doing a for loop because of list comprehension ALSO FASTER
-        tot_ultra = 0 #initialize value for ultra large scales
-        tot_lin = 0 #initialize for lin scales
-        tot_quasi = 0 #initialize for quasi lin scales
-
-        #k has to fall in the proper bins
-        aux_k_ultra = (stats_nl_pre_k >= ultra_scale_min) & (stats_nl_pre_k < ultra_scale_max)
-        aux_k_lin = (stats_nl_pre_k >= lin_scale_min) & (stats_nl_pre_k < lin_scale_max)
-        aux_k_quasi = (stats_nl_pre_k >= quasi_scale_min) & (stats_nl_pre_k <= quasi_scale_max)
-
-        #Looks at only the regime where clustering affects it
-        if clustering_only == True:
-            aux_cluster_ultra = (stats_nl_pre_k[aux_k_ultra] > cluster_reg_min) & (stats_nl_pre_k[aux_k_ultra] < cluster_reg_max)
-            aux_cluster_lin = (stats_nl_pre_k[aux_k_lin] > cluster_reg_min) & (stats_nl_pre_k[aux_k_lin] < cluster_reg_max)
-            aux_cluster_quasi = (stats_nl_pre_k[aux_k_quasi] > cluster_reg_min) & (stats_nl_pre_k[aux_k_quasi] < cluster_reg_max)
-
-            #Calculate the weights i.e. how badly has this bin failed
-            w_ultra = np.log10(np.abs((stats_nl_pre_err[aux_k_ultra])[aux_cluster_ultra]) / thres)
-            w_lin = np.log10(np.abs((stats_nl_pre_err[aux_k_lin])[aux_cluster_lin]) / thres)
-            w_quasi = np.log10(np.abs((stats_nl_pre_err[aux_k_quasi])[aux_cluster_quasi]) / thres)
-
-            #Make all the negative values = 0, since that means they didn't pass the threshold
-            aux_ultra_neg = w_ultra < 0.
-            aux_lin_neg = w_lin < 0.
-            aux_quasi_neg = w_quasi < 0.
-
-            w_ultra[aux_ultra_neg] = 0
-            w_lin[aux_lin_neg] = 0
-            w_quasi[aux_quasi_neg] = 0
-
-            tot_ultra = np.sum(w_ultra)
-            tot_lin = np.sum(w_lin)
-            tot_quasi = np.sum(w_quasi)
-        #calculates imprecision in any regime
-        if clustering_only == False:
-            #caluclate the weights i.e. how badly has this bin failed
-            w_ultra = np.log10(np.abs(stats_nl_pre_err[aux_k_ultra]) / thres)
-            w_lin = np.log10(np.abs(stats_nl_pre_err[aux_k_lin]) / thres)
-            w_quasi = np.log10(np.abs(stats_nl_pre_err[aux_k_quasi]) / thres)
-
-            #Make all the negative values = 0, since that means they didn't pass the threshold
-            aux_ultra_neg = w_ultra < 0.
-            aux_lin_neg = w_lin < 0.
-            aux_quasi_neg = w_quasi < 0.
-
-            w_ultra[aux_ultra_neg] = 0
-            w_lin[aux_lin_neg] = 0
-            w_quasi[aux_quasi_neg] = 0
-
-            #calculate the totals
-            tot_ultra = np.sum(w_ultra)
-            tot_lin = np.sum(w_lin)
-            tot_quasi = np.sum(w_quasi)
-
-
-        #Append these values to our z summary stat
-        #For list only
-        tot_nl_pre_z = np.append(tot_nl_pre_z, tot_ultra)
-        tot_nl_pre_z = np.append(tot_nl_pre_z, tot_ultra) # 2 bins
-        tot_nl_pre_z = np.append(tot_nl_pre_z, tot_lin)
-        tot_nl_pre_z = np.append(tot_nl_pre_z, tot_quasi)
-
-        #For list of lists
-        tot_nl_pre_z_ll.append(tot_ultra)
-        tot_nl_pre_z_ll.append(tot_ultra) # 2 bins
-        tot_nl_pre_z_ll.append(tot_lin)
-        tot_nl_pre_z_ll.append(tot_quasi)
-
-        #Append these values for the general z stat
-        #For list only
-        tot_nl_pre = np.append(tot_nl_pre, tot_nl_pre_z)
-        #For list of lists
-        tot_nl_pre_ll.append(tot_nl_pre_z_ll)
-
-
-
-
-	#Generate our z values for plotting
-    z_actual = range(len(z_vals))
-    z_arr = np.float_(np.asarray(z_actual))
-    z_arr *= 0.5
-    z = []
-    z_ll = []	#Create a heat map, but makes it red, right now we just mark threshold on the heat map
-    for j in range(len(z_actual)):
-        z_full = np.full(len(tot_nl_pre_ll[0]), z_arr[j])
-        z = np.append(z,z_full)
-        z_ll.append(z_full)
-
-	#Generate an array of the midpoints of the bins
-
-    ultra_scale_bin = (np.log10(ultra_scale_max) + np.log10(ultra_scale_min))/2
-    ultra_scale_bin_1 = ultra_scale_bin - 0.5
-    ultra_scale_bin_2 = ultra_scale_bin + 0.5
-    lin_scale_bin = (np.log10(lin_scale_max) + np.log10(lin_scale_min))/2
-    quasi_scale_bin = (np.log10(quasi_scale_max) + np.log10(quasi_scale_min))/2
-
-    k_bin = [ultra_scale_bin_1, ultra_scale_bin_2, lin_scale_bin, quasi_scale_bin]
-    k_list = k_bin * len(z_vals) 
-
-
-	#Gonna try to plot it the pandas way
-	#WORKS!!!! AND it fills the whole space. FUCKING LIT
-    k_words = ['Ultra-large', 'Linear', 'Quasi Lin']
-	#Use pandas to generate a data frame
-    #df = pd.DataFrame(sum_lin_ll, index=z_arr, columns=k_words)
-
-	#Values greater than threshold will be red, values at 0 will be green
-	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-    #print(sum_lin_z_ll)
-
-    #print(sum_lin_z)
-    #df = pd.DataFrame(tot_nl_pre_ll, index=z_arr, columns=k_words)
-    data_nl_pre = {'tot_nl_pre': tot_nl_pre, 'z':z, 'k':k_list}
-    source = ColumnDataSource(data=data_nl_pre)
-
-	#Values greater than threshold will be red, values at 0 will be green
-	#and values in between will be gradient of orange
-
-	#Failed here
-	#cmap, norm = mcolors.from_levels_and_colors([thres,100], ['red'])
-
-	#Trying to brute force colors for me
-    colors = ['#fff5ee', '#ffe4e1', '#ffc1c1', '#eeb4b4', '#f08080', '#ee6363', '#d44942', '#cd0000', '#ff0000']
-    mapper = LinearColorMapper(palette = colors, low = 0, high = 100)
-
-    TOOLS = 'hover, pan, wheel_zoom, box_zoom, save, resize, reset'
-    p_sum = figure(title = "Summary Statistic", toolbar_location = "above", tools=TOOLS)
-        #tools = tools, toolbar_location = "above")
-
-    p_sum.grid.grid_line_color = None
-    p_sum.axis.axis_line_color = None
-    p_sum.axis.major_tick_line_color = None
-    p_sum.axis.major_label_text_font_size = "12pt"
-    p_sum.axis.major_label_standoff = 0
-    p_sum.xaxis.major_label_orientation = 0.5
-    p_sum.rect('k', 'z', source = source, width = (1.0), height = (0.5), fill_color={'field': 'tot_nl_pre', 'transform':mapper}, line_color= None)
-
-
-    color_bar = ColorBar(color_mapper=mapper, major_label_text_font_size='12pt',
-                    ticker=BasicTicker(desired_num_ticks=len(colors)),
-                    label_standoff=6, border_line_color=None, location=(0,0))
-
-
-    p_sum.add_layout(color_bar, 'right')
-    p_sum.xaxis.axis_label = "log k"
-    p_sum.yaxis.axis_label = "z"
-
-    #Make a textarea, so that the html will print out a textbox of the parameter values
-
-    id_val_string = 'Index = %s <br/>' %index
-    h_string = 'h = %s <br/>' %h
-    Omega_b_string = '&Omega;<sub>b</sub> = %s <br/>' %Omega_b
-    Omega_cdm_string = '&Omega;<sub>cdm</sub> = %s <br/>' %Omega_cdm
-    A_s_string = 'A<sub>s</sub> = %s <br/>' %A_s
-    n_s_string = 'n<sub>s</sub> = %s <br/>' %n_s
-
-    
-    #textbox
-    textbox = '<div class=\'boxed\'> Parameter values: <br/>' + id_val_string + h_string + Omega_b_string + Omega_cdm_string + A_s_string + n_s_string + '</div>'
-    
-    #parameter values
-    #parameter = 
-    #Create a paragraph to tell the users what to do
-    readme = Paragraph(text = """If you want to recreate these plots, look
-    no further! Below is the .ini file for CLASS and the code used to run CCL
-    on python. For the .ini file, save it under something like mytext.ini, then
-    go to your folder with CLASS and simply run ./class myext.ini pk_ref.pre
-    REMEMBER TO ADD THAT LAST ARGUMENT SINCE THAT ALLOWS FOR A HIGHER PRECISION
-    For the CCL one, make sure you have it installed then simply run in Python.
-    When you plot these against each other make sure to multiply the CLASS values
-    by proper factor of h, since CLASS units are proportional to factors of h
-    """, width = 500)
-
-    #Create preformatted text of the .ini file used and the code for CLASS and CCL
-    with open('../class/ini_files/lhs_nonlin_%05d.ini' %i, 'r') as myfile:
-        ini_text = myfile.read()
-    class_pretext = PreText(text='CLASS .ini file \n' + ini_text)
-
-    h_ccl = 'h = %s \n' %h
-    Omega_b_ccl = 'Omega_b = %s \n' %Omega_b
-    Omega_cdm_ccl = 'Omega_cdm = %s \n' %Omega_cdm
-    A_s_ccl = 'A_s = %s \n' %A_s
-    n_s_ccl = 'n_s = %s \n' %n_s
-
-    index_ccl = 'index = %s \n' %index
-    #Create a textbox that tells the parameters
-    parameters = PreText(text="""Parameter values \n""" + index_ccl + h_ccl +
-        Omega_b_ccl + Omega_cdm_ccl + A_s_ccl + n_s_ccl)
-
-    #Create one for the CCL code used
-    ccl_pretext = PreText(text=
-    """Code for CCL, just simply run in python
-Make sure to have the CLASS k values, so it coincides properly
-i.e. make sure the class_path_nl is correct
-
-import numpy as np
-import pyccl
-
-""" + 
-    h_ccl + Omega_b_ccl + Omega_cdm_ccl + A_s_ccl + n_s_ccl + 
-    """
-cosmo = pyccl.Cosmology(Omega_c=Omega_cdm, Omega_b=Omega_b, h=h, A_s=A_s, n_s=n_s, transfer_function='boltzmann')
-z_vals = ['1', '2', '3', '4', '5', '6']
-for j in range(len(z_vals)):
-    z_val = z_vals[j]
-    class_path_nl = '/class/output/nonlin/lhs_nonlin_pk_%s' %trial
-    z_path = 'z%s_pk_nl.dat' %z_val
-    k_nl_data = np.loadtxt(class_path_nl, skiprows=4)
-    k_nl = k_nl_data[:,0]
-    k_nl *= h
-    #Since our z values are like [0, 0.5, 1.,...] with 0.5 steps
-    z = j * 0.5
-    a = 1. / (1. + z)
-    #Matter power spectrum for nonlin
-    pk_nl = pyccl.nonlinear_matter_power(cosmo, k_nl, a)
-    """, width=500)
-
-    #ccl_pretext = 
-
-    #Create whitespace to fill between class_pretext and ccl_pretext
-    whitespace = PreText(text = """ """, width = 200)
-    #l = layout([[p2,p,],[WidgetBox(readme),],[WidgetBox(class_pretext),WidgetBox(whitespace), WidgetBox(ccl_pretext),]])
-    l = layout([[p_sum, parameters],[p2,p,],[WidgetBox(readme),],[WidgetBox(class_pretext),WidgetBox(whitespace), WidgetBox(ccl_pretext),]])
-    #
-    # Embed plot into HTML via Flask Render
-    script, div = components(l)   
-    #print (script)
-    #print(div)
-
-    return render_template("nl_pre.html", script=script, div=div, bokeh_version=BOKEH_VERSION)
-
-#With debug=True, Flask Render will auto-reload when there are code changes
 if __name__ == '__main__':
-    #set debug to False in a production environment
-    
+    # Set debug to False in a production environment
     app.run(port=5000, debug=True)
-
-
-
-
-
-
 

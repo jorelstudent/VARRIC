@@ -1,5 +1,143 @@
 import numpy as np
 
+def load_hypercube(fname):
+    """
+    Load a Latin hypercube from disk. Parameter columns will be ordered 
+    alphabetically by name.
+    
+    Parameters
+    ----------
+    fname : str
+        Filename to read sample points from.
+    
+    Returns
+    -------
+    sample_points : dict
+        Dictionary containing parameter names (keys) and array of parameter 
+        values for all sample points (values).
+    """
+    # Get header
+    f = open(fname, 'r')
+    hdr = f.readline()[2:-1].split(" ")
+    f.close()
+    
+    # Load data
+    dat = np.loadtxt(fname).T
+    
+    # Build dict
+    sample_points = {}
+    for i in range(len(hdr)):
+        sample_points[hdr[i]] = dat[i]
+    
+    return sample_points    
+
+
+def load_summary_stats(sample_points, ccl_data_root, class_data_root,
+                       thresholds=[5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2],
+                       scale_ranges = [(1e-4, 1e-2), (1e-2, 1e-1), (1e-1, 1e0)],
+                       z_vals = ['1', '2', '3', '4', '5', '6'],
+                       cache_name=None):
+    """
+    Calculate summary stats for the deviation between CCL and reference power 
+    spectra as a function of scale and redshift, for a large number of sample 
+    points over the cosmological parameter space.
+    
+    Parameters
+    ----------
+    sample_points : dict
+        Dictionary containing parameter names (keys) and array of parameter 
+        values for all sample points (values).
+        
+    ccl_data_root : str
+        Root of filenames of CCL power spectrum files
+    
+    class_data_root : str
+        Root of filenames of CLASS power spectrum files. If the string '_nl_' 
+        is found in class_data_root, this will assume that nonlinear power 
+        spectra should be loaded.
+    
+    """
+    # Get dimensions of stats array that will be constructed
+    N_samp = sample_points[sample_points.keys()[0]].size
+    N_thres = len(thresholds)
+    N_z = len(z_vals)
+    N_kbins = len(scale_ranges)
+    
+    # Check if data were cached
+    if cache_name is not None:
+        try:
+            stats = np.load("%s.npy" % cache_name)
+            print("  Loaded '%s' from cache." % cache_name)
+            assert stats.shape == (N_samp, N_thres, N_z, N_kbins)
+            return stats
+        except:
+            print("  Cache '%s' not found. Recomputing." % cache_name)
+            pass
+    
+    # Create array to hold summary statistics, with shape:
+    # (N_samp, N_thres, N_z, N_kbins)
+    stats = np.zeros((N_samp, N_thres, N_z, N_kbins))
+    
+    # Loop over sample points in parameter space and calculate summary stats
+    for i in range(N_samp):
+        print "  Loading power spectra for parameter set %05d" % i
+        
+        # Get Hubble parameter, h, for rescaling CLASS P(k) to Mpc units
+        h = sample_points['h'][i]
+        
+        # Try to get deviation
+        try:
+          # Loop over redshift values
+          for j in range(N_z):
+            
+            # Construct filenames for CCL and CLASS P(k) data files
+            fname_ccl = "%s_%05d_z%d.dat" % (ccl_data_root, i, j+1)
+            if '_nl_' in class_data_root:
+                fname_class = "%s_%05dz%d_pk_nl.dat" % (class_data_root, i, j+1)
+            else:
+                fname_class = "%s_%05dz%d_pk.dat" % (class_data_root, i, j+1)
+            
+            # Load CCL power spectrum data
+            pk_ccl_dat = np.loadtxt(fname_ccl)
+            ccl_k = pk_ccl_dat[:,0]
+            ccl_pk = pk_ccl_dat[:,1]
+            
+            # Load CLASS power spectrum data
+            pk_class_dat = np.loadtxt(fname_class) #, skiprows=1)
+            class_k = pk_class_dat[:,0]
+            class_pk = pk_class_dat[:,1] / h**3.
+            
+            # Sanity checks
+            print ccl_pk.shape, class_pk.shape
+            assert ccl_pk.size == class_pk.size
+            
+            # Calculate summary stats in each k bin
+            for m in range(N_kbins):
+                kmin, kmax = scale_ranges[m]
+                idxs = np.logical_and(ccl_k >= kmin, ccl_k < kmax)
+                
+                # Calculate deviation statistic, Delta, for a range of 
+                # threshold values (only values above the threshold are counted)
+                for n, thres in enumerate(thresholds):
+                    # Calculate deviation statistic
+                    dev = np.log10(
+                               np.abs(ccl_pk[idxs]/class_pk[idxs] - 1.) / thres)
+                    dev[np.where(dev < 0.)] = 0.
+                    
+                    # Store result in stats array (N_samp, N_thres, N_z, N_kbins)
+                    stats[i, n, j, m] = np.sum(dev)
+        except:
+          # If there were any failures, set stats to 'nan' for this sample point
+          raise
+          print("  Failed to compute stats for sample %05d." % i)
+          stats[i, :, :, :] = np.nan
+          
+    # Save to cache file
+    if cache_name is not None:
+        np.save(cache_name, stats)
+    return stats
+
+
 def ccl_summary_stats(params,
                       fname_template='../stats/lhs_mpk_err_lin_%05d_z%d.dat',
                       thresholds=[5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2],
